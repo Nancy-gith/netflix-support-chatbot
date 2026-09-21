@@ -80,14 +80,16 @@ how plans work, how to cancel, what payment methods are accepted, the
 refund policy, or a recommendation based on a genre you mention. All of
 that works from the very first message, with no name picked.
 
-Only two things are tied to a specific person: looking up *your* current
-plan, and changing *your* plan. The moment you ask one of those and
-nobody's identified yet, the sidebar's caption turns into a clear prompt,
-and the chat gives you the same message directly: "please select your
-name from the sidebar." Once you pick a name, that choice is remembered
-for the rest of the session — every later personal question just works,
-without asking again — and you can still pick a *different* name at any
-time if you want the chatbot to switch who it's helping.
+Three things are tied to a specific person: looking up *your* current
+plan, changing *your* plan, and a recommendation explicitly based on
+*your own* profile or taste rather than a genre you just mentioned. The
+moment you ask one of those and nobody's identified yet, the sidebar's
+caption turns into a clear prompt, and the chat gives you the same
+message directly: "please select your name from the sidebar." Once you
+pick a name, that choice is remembered for the rest of the session —
+every later personal question just works, without asking again — and you
+can still pick a *different* name at any time if you want the chatbot to
+switch who it's helping.
 
 One deliberate detail: the "please select your name" message is always
 worded exactly the same way, rather than left up to the model to phrase
@@ -143,6 +145,17 @@ uses that automatically — no need to repeat yourself every time. If you
 do mention a genre in the moment ("actually, something scary"), that
 always wins over whatever's saved. And if there's nothing saved and you
 haven't said a genre either, it just asks — the same as it always did.
+
+**One more wrinkle: asking for "my profile" or "my taste" needs identity
+too.** There's a difference between "recommend me something" (fine
+without an identity — it'll just ask you what genre you like) and
+"recommend something based on my profile" or "what should I watch based
+on my taste" (this is explicitly asking the chatbot to use *your*
+history, which it can't do without knowing who you are). For that second
+kind of request, if nobody's identified yet, the chatbot doesn't guess or
+answer generically — it triggers the exact same "please identify
+yourself" prompt used for plan lookups. Once you're identified, the same
+request just works, using your saved favorite genre.
 
 ## Deployment: where the app lives, and where the secret key lives
 

@@ -255,13 +255,17 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "recommend_genre",
-            "description": "Suggests shows/movies for the customer. If they stated a genre this turn, pass it as `preference`. If they didn't, call this tool anyway with no `preference` — it will automatically use the identified customer's saved favorite genre if they have one on file, or tell you to ask them if not.",
+            "description": "Suggests shows/movies for the customer. If they stated a genre this turn, pass it as `preference` — call the tool right away, no identity needed. If they didn't state a genre but explicitly asked for something based on THEIR OWN profile, taste, or watch history (e.g. 'based on my profile', 'what I usually watch'), set `personalized` to true instead of guessing a genre — if nobody's identified yet, this correctly asks them to identify themselves rather than answering generically. For a plain 'recommend me something' with no stated genre and no personalization language, call with neither argument — it uses a saved favorite genre if the customer is identified, or asks what they enjoy if not.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "preference": {
                         "type": "string",
                         "description": "The genre the customer explicitly mentioned in this message. Omit entirely if they didn't state one.",
+                    },
+                    "personalized": {
+                        "type": "boolean",
+                        "description": "True only if the customer explicitly referenced their own profile, taste, or watch history without stating a genre. Omit or set false otherwise.",
                     },
                 },
                 "required": [],
@@ -285,8 +289,14 @@ TOOL_FUNCTIONS = {
 USER_SCOPED_TOOLS = {"get_user_plan", "update_plan"}
 
 # Tools that USE the identified customer's account when one is available,
-# but work fine without one too — they just fall back to asking instead of
-# refusing outright. Unlike USER_SCOPED_TOOLS, these never trigger the
-# "please identify yourself" response; user_id is passed in as None if
-# nobody's identified, and the tool itself decides what to do with that.
+# but work fine without one too, for a plain/generic request — they fall
+# back to asking instead of refusing outright. user_id is passed in as
+# None if nobody's identified, and the tool decides what to do with that.
+# The one exception: if the model set personalized=true (the customer
+# explicitly asked for something tied to THEIR profile/taste/history) and
+# nobody's identified, chatbot.execute_tool_call() treats that one call
+# like a USER_SCOPED_TOOLS call and requires identification anyway — see
+# chatbot.py. That keeps "recommend something generic" working with no
+# identity while "recommend something based on my profile" correctly
+# still needs to know whose profile.
 OPTIONAL_USER_SCOPED_TOOLS = {"recommend_genre"}

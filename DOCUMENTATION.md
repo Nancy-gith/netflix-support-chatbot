@@ -102,6 +102,18 @@ From there, the project was extended in this order:
     available does it ask. See
     [Section 3.7](#37-recommend_genre-falling-back-to-a-saved-preference)
     for the mechanism.
+20. **Fixed personalized recommendation requests not requiring
+    identification.** "Recommend something based on my profile" was
+    being answered generically even with nobody identified — the model
+    either invented a plausible-sounding answer or asked a vague follow-up
+    instead of recognizing this needed the same identification flow as a
+    plan lookup. Added a `personalized` flag to `recommend_genre`'s tool
+    schema: the model sets it when a request explicitly references the
+    customer's own profile/taste/history without also stating a genre,
+    and `execute_tool_call()` treats that combination exactly like a
+    `USER_SCOPED_TOOLS` call when nobody's identified — same refusal, same
+    fixed message. See the end of
+    [Section 3.7](#37-recommend_genre-falling-back-to-a-saved-preference).
 
 ---
 
@@ -497,6 +509,48 @@ cycling through them the same deterministic way plans and payment methods
 are assigned — except every 6th user gets `None` instead, on purpose, so
 the "nothing saved — ask" branch has real sample data to exercise in
 testing and demos, not just the happy path.
+
+**Closing the "my profile" gap.** The design above still had a hole:
+nothing distinguished "recommend me something" (fine to answer generically
+or just ask a genre) from "recommend something based on my profile" (an
+explicit request to use *this specific customer's* data, which doesn't
+exist to check without knowing who they are). Before this was addressed,
+that second phrasing could get answered as if it were the first — either
+a generic guess or a vague follow-up question, never the identification
+prompt it should have triggered.
+
+The fix adds one more optional boolean to `recommend_genre`'s schema,
+`personalized`, which the model sets to `true` only when the customer's
+wording explicitly references their own profile/taste/history without
+also stating a genre in the same message. `execute_tool_call()` then
+computes:
+
+```python
+wants_personalization = arguments.pop("personalized", False)
+has_stated_preference = bool(arguments.get("preference"))
+
+needs_identity_now = name in USER_SCOPED_TOOLS or (
+    name in OPTIONAL_USER_SCOPED_TOOLS
+    and wants_personalization
+    and not has_stated_preference
+)
+```
+
+When `needs_identity_now` is true and `active_user_id is None`, this call
+is refused exactly the same way a `USER_SCOPED_TOOLS` call would be —
+same `needs_identification=True` flag, same fixed
+`IDENTIFICATION_NEEDED_MESSAGE`. The `and not has_stated_preference`
+clause matters: "recommend a comedy based on my profile" still doesn't
+need identity, because the stated genre already answers the request —
+personalization language alone isn't what triggers the gate, needing
+data that isn't there yet is. `personalized` is popped off `arguments`
+before the real function is called, since it's a routing signal for this
+file, not a parameter `recommend_genre()` itself accepts.
+
+This is the same pattern as 3.6's identification gate, applied to a tool
+that's normally *optional*-scoped: the deciding fact (does answering this
+specific request require knowing who's asking) still lives in code, not
+in the model's in-the-moment judgment about what to say.
 
 ---
 

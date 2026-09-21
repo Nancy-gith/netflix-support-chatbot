@@ -36,21 +36,25 @@ You don't have to pick one to start chatting. General questions — how
 plans work, how to cancel, what payment methods are accepted, the refund
 policy, a recommendation based on a genre you like — are answered right
 away, for anyone. Only when you ask something tied to *your own* account
-(what plan am I on, switch my plan) does the chatbot ask you to pick your
-name from a sidebar dropdown, so it knows who it's actually helping. Once
-picked, it remembers that choice for the rest of the conversation — you
-won't be asked again — and you can switch to a different person at any
-time.
+(what plan am I on, switch my plan, or a recommendation you explicitly
+tie to "my profile" or "my taste" rather than a genre) does the chatbot
+ask you to pick your name from a sidebar dropdown, so it knows who it's
+actually helping. Once picked, it remembers that choice for the rest of
+the conversation — you won't be asked again — and you can switch to a
+different person at any time.
 
 So, without picking anyone, you can:
 - Ask general questions about plans, cancelling, payment methods, and refunds
 - Ask for a show or movie recommendation, stating a genre you like
 
-If you *have* picked who you are, asking for a recommendation without
-stating a genre uses your saved favorite genre automatically — no need to
-repeat it every time. (A handful of sample customers have no saved
-genre, on purpose, so the chatbot's fallback — just asking — has real
-data to show too.)
+If you *have* picked who you are, you can also ask for a recommendation
+without stating a genre (uses your saved favorite genre automatically —
+no need to repeat it every time) or explicitly ask for something "based
+on my profile" or "based on my taste." Asking that same way *without*
+picking anyone first gets you the identification prompt instead of a
+generic answer — the chatbot won't pretend to know your taste when it
+doesn't. (A handful of sample customers have no saved genre, on purpose,
+so the chatbot's fallback — just asking — has real data to show too.)
 
 And once you've picked who you are, you can also:
 - Ask what plan you're on
