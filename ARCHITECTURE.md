@@ -6,13 +6,14 @@ order, from opening the app to getting an answer.
 ## The journey of one message, step by step
 
 1. **You open the app.** You see a sidebar with a dropdown of sample
-   customer names, and a chat window. The chat immediately says "Hi
-   \<name\>!" for whichever customer is selected by default.
+   customer names. No one is selected yet — the chat area just asks you
+   to pick a customer first. There's no chat box to type into until you do.
 
-2. **You pick a name from the dropdown** (or leave the default one). This
-   tells the app "I'm chatting as this person." If you pick a different
-   name later, the chat window will greet that new person too — you can
-   switch at any point, mid-conversation.
+2. **You pick a name from the dropdown.** This tells the app "I'm
+   chatting as this person." The chat immediately says "Hi \<name\>!" and
+   the chat box appears. If you pick a different name later, the chat
+   window will greet that new person too — you can switch at any point,
+   mid-conversation, without losing what was said before.
 
 3. **You type a message** and hit send, e.g. "What plan am I on?"
 
@@ -58,6 +59,17 @@ tool would help. This means:
   right tool by itself
 - If it needs more than one tool, it can call several in a row before
   replying
+
+## Staying on topic
+
+The chatbot is instructed to only help with things related to this
+service — plans, billing, and recommendations. If you ask it something
+unrelated (write a poem, tell a joke, answer a trivia question), it
+politely declines and points you back to what it can help with, every
+time — even if you ask the same off-topic thing in a different way, or
+ask more than once. This isn't a tool or a lookup; it's an instruction
+built into how the chatbot is told to behave from the very start of the
+conversation.
 
 ## What each file does
 

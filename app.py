@@ -51,6 +51,8 @@ if "messages" not in st.session_state:
 # selected becomes the "active" account for every tool call the model makes
 # (see chatbot._active_user_context and chatbot.execute_tool_call), until a
 # different name is picked.
+PLACEHOLDER = "Select a customer to begin..."
+
 with st.sidebar:
     st.subheader("You're chatting as")
 
@@ -64,18 +66,27 @@ with st.sidebar:
         for user_id, info in sorted_users
     }
 
+    # The placeholder is a real option at index 0, not just placeholder
+    # text — that's what stops Streamlit from silently pre-selecting the
+    # alphabetically-first customer (it used to default to index 0 of the
+    # name list, which meant a customer was "selected" before anyone had
+    # actually chosen one).
     selected_label = st.selectbox(
         "Search or select a customer",
-        options=list(label_to_id.keys()),
+        options=[PLACEHOLDER] + list(label_to_id.keys()),
+        index=0,
         key="active_user_label",
     )
-    st.session_state.active_user_id = label_to_id[selected_label]
+    st.session_state.active_user_id = label_to_id.get(selected_label)
 
-    active_user = USERS_DB[st.session_state.active_user_id]
-    st.caption(
-        f"Account **{st.session_state.active_user_id}** · "
-        f"{active_user['plan']} · next billing {active_user['billing_date']}"
-    )
+    if st.session_state.active_user_id:
+        active_user = USERS_DB[st.session_state.active_user_id]
+        st.caption(
+            f"Account **{st.session_state.active_user_id}** · "
+            f"{active_user['plan']} · next billing {active_user['billing_date']}"
+        )
+    else:
+        st.caption("No customer selected yet.")
 
     st.divider()
 
@@ -84,12 +95,20 @@ with st.sidebar:
         st.session_state.greeted_user_id = None
         st.rerun()
 
+# Nothing else on the page should render until a real customer is picked —
+# no chat history, no input box, no greeting. st.stop() halts the rest of
+# this script for the current run.
+if not st.session_state.active_user_id:
+    st.info("👋 Select a customer from the sidebar to begin chatting.")
+    st.stop()
+
 # ---- Greet the active customer -----------------------------------------
-# Fires once whenever active_user_id changes — including the very first
-# run, since greeted_user_id starts as None. This is what makes a mid-chat
-# switch visible IN the chat itself ("Hi Rahul!") instead of only showing
-# up as a quiet change in the sidebar.
+# Fires once whenever active_user_id changes — including the first time a
+# customer is ever picked, since greeted_user_id starts as None. This is
+# what makes a mid-chat switch visible IN the chat itself ("Hi Rahul!")
+# instead of only showing up as a quiet change in the sidebar.
 if st.session_state.active_user_id != st.session_state.greeted_user_id:
+    active_user = USERS_DB[st.session_state.active_user_id]
     st.session_state.messages.append(_greeting_message(active_user))
     st.session_state.greeted_user_id = st.session_state.active_user_id
 

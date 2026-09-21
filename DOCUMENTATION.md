@@ -65,6 +65,14 @@ From there, the project was extended in this order:
     posts a "Hi \<first name\>!" message directly into the chat, so a
     mid-conversation switch is obvious in the transcript itself and not
     just a quiet change in the sidebar.
+15. **Fixed the dropdown silently pre-selecting a customer.** Added a
+    placeholder option so no one is "logged in" until a name is actually
+    chosen, and gated the rest of the page behind that choice with
+    `st.stop()`.
+16. **Hardened the system prompt against off-topic requests.** The model
+    would sometimes comply with requests like "write a poem" after
+    initially refusing similar ones — see
+    [Section 4](#4-why-these-design-decisions) for what changed and why.
 
 ---
 
@@ -295,19 +303,67 @@ if st.session_state.active_user_id != st.session_state.greeted_user_id:
 ```
 
 `greeted_user_id` tracks who the chat last greeted. Whenever the active
-customer differs from that (which is true both on the very first run,
-since it starts as `None`, and immediately after a dropdown switch), a
-templated "Hi \<first name\>! 👋 ..." message is appended to the visible
-chat before the history is rendered. It's plain Python string
-formatting — not a model call — which keeps it instant, free, and
-exactly predictable, and it's added as a real `assistant` message in
-`st.session_state.messages`, so it renders through the same history loop
-as everything else and is also visible to the model as prior context on
-the next turn.
+customer differs from that (which is true both the first time a real
+customer is picked, since it starts as `None`, and immediately after a
+dropdown switch), a templated "Hi \<first name\>! 👋 ..." message is
+appended to the visible chat before the history is rendered. It's plain
+Python string formatting — not a model call — which keeps it instant,
+free, and exactly predictable, and it's added as a real `assistant`
+message in `st.session_state.messages`, so it renders through the same
+history loop as everything else and is also visible to the model as
+prior context on the next turn.
+
+**No customer is pre-selected — the dropdown starts on a placeholder.**
+An earlier version of the dropdown had no explicit default, which meant
+`st.selectbox` silently defaulted to index 0 of the customer list —
+whichever name sorted first alphabetically. That looked like a real
+customer was already "logged in" before anyone had chosen one. The fix
+adds a placeholder string (`"Select a customer to begin..."`) as an
+actual option at index 0, so `label_to_id.get(selected_label)` returns
+`None` until a real name is chosen:
+
+```python
+selected_label = st.selectbox(
+    "Search or select a customer",
+    options=[PLACEHOLDER] + list(label_to_id.keys()),
+    index=0,
+)
+st.session_state.active_user_id = label_to_id.get(selected_label)
+
+if not st.session_state.active_user_id:
+    st.info("👋 Select a customer from the sidebar to begin chatting.")
+    st.stop()
+```
+
+`st.stop()` halts the rest of the script for that run — so with nothing
+selected, no greeting is added, no history renders, and there's no chat
+box to type into at all. The chat genuinely doesn't start until a
+customer is chosen.
 
 ---
 
 ## 4. Why these design decisions
+
+**Why the system prompt spells out off-topic refusal so explicitly, with
+repeated instructions and an exact reply template?**
+A single, soft sentence like "stay on topic" turned out not to be
+reliable — testing showed the model would refuse a request like "write me
+a poem" once, then later in the same session comply with a rephrased
+version of the same request (e.g. "write a poem about Adam Smith"). LLMs
+generally follow instructions more reliably when they're explicit, listed
+concretely rather than implied, and repeated near the end of the prompt
+(instructions near the end of a long prompt tend to carry more weight than
+ones only stated once near the top). The fix does three things: states the
+rule as a hard "no exceptions, no matter how it's phrased" instruction
+rather than a soft preference, lists concrete examples of what counts as
+off-topic (poems, trivia, homework help, jokes, general knowledge) instead
+of leaving "on-topic" to interpretation, and gives one exact redirect
+sentence to reuse every time instead of leaving the wording up to the
+model — then repeats the core instruction once more at the very end of the
+prompt. This was verified by testing the same and rephrased off-topic
+requests — including the literal "poem about Adam Smith" case that failed
+before — across multiple fresh conversations and one long mixed
+conversation, all refused consistently after the change.
 
 **Why raw `requests` instead of the official Groq SDK?**
 The original notebook already used `requests` directly against the API
