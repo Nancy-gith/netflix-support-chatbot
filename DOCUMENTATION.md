@@ -93,6 +93,15 @@ From there, the project was extended in this order:
     between them. Fixed by escaping every `$` as `\$` before rendering,
     in a small `_render_chat_text()` helper in `app.py` used everywhere
     chat content is displayed.
+19. **Made recommendations use a customer's saved favorite genre
+    automatically.** Each sample user in `USERS_DB` now has a
+    `favorite_genre` field (about 6 don't, on purpose). `recommend_genre`
+    now accepts an optional `preference` — if the customer states a genre
+    this turn, that's used; if not, and they're identified with a saved
+    genre on file, that's used automatically; only if neither is
+    available does it ask. See
+    [Section 3.7](#37-recommend_genre-falling-back-to-a-saved-preference)
+    for the mechanism.
 
 ---
 
@@ -437,6 +446,57 @@ turn. Encoding it as a lookup against `USER_SCOPED_TOOLS` — the same set
 already used for auto-injecting the account ID — means the identification
 gate can never drift out of sync with which tools are actually
 account-specific.
+
+### 3.7 recommend_genre: falling back to a saved preference
+
+`recommend_genre` is neither fully open (it does personalize when it
+can) nor fully gated (it never refuses just because nobody's identified),
+which is why it lives in its own category, `tools.OPTIONAL_USER_SCOPED_TOOLS`,
+rather than `USER_SCOPED_TOOLS`. The distinction that matters in
+`chatbot.execute_tool_call()`:
+
+```python
+if name in USER_SCOPED_TOOLS and active_user_id is None:
+    ...refuse with needs_identification=True...
+
+if name in USER_SCOPED_TOOLS or name in OPTIONAL_USER_SCOPED_TOOLS:
+    arguments["user_id"] = active_user_id
+```
+
+`user_id` gets injected for both categories, but only `USER_SCOPED_TOOLS`
+triggers the identification-required short-circuit when it's `None`.
+`recommend_genre` always runs — `active_user_id` might just be `None`
+inside it, and the function itself decides what to do with that:
+
+```python
+def recommend_genre(preference=None, user_id=None):
+    used_saved_preference = False
+    if not preference and user_id and user_id in USERS_DB:
+        preference = USERS_DB[user_id].get("favorite_genre")
+        used_saved_preference = preference is not None
+
+    if not preference:
+        return {"error": "No genre preference given, and none saved for this customer.", ...}
+    ...
+```
+
+The precedence is deliberate: a genre stated *this turn* always wins over
+whatever's saved (someone whose favorite is comedy can still ask for a
+horror recommendation tonight), a saved `favorite_genre` is used only
+when nothing was stated, and only when both are absent does the tool
+report back that it needs one — which the model then relays as a normal
+follow-up question, in its own words. That last part is intentionally
+*not* hardened into a fixed string the way `IDENTIFICATION_NEEDED_MESSAGE`
+is: asking "what genre do you like?" has no wrong phrasing or scope risk
+the way the off-topic and identification cases did, so there's nothing to
+gain from forcing it to be word-for-word identical every time.
+
+`tools.py` generates `favorite_genre` for each sample user directly from
+`GENRE_CATALOG`'s own keys (`GENRE_CYCLE = list(GENRE_CATALOG.keys())`),
+cycling through them the same deterministic way plans and payment methods
+are assigned — except every 6th user gets `None` instead, on purpose, so
+the "nothing saved — ask" branch has real sample data to exercise in
+testing and demos, not just the happy path.
 
 ---
 

@@ -53,34 +53,9 @@ PAYMENT_METHODS = [
 ]
 
 
-def _generate_users():
-    """Builds the fake customer database: one entry per name in FIRST_NAMES,
-    cycling deterministically through plans, payment methods, and billing
-    days so the data looks varied without any randomness (randomness would
-    make the "database" different every time the app process restarts,
-    which makes testing and demoing annoying)."""
-    users = {}
-    for i, first_name in enumerate(FIRST_NAMES):
-        last_name = LAST_NAMES[i % len(LAST_NAMES)]
-        user_id = f"U{101 + i}"
-        plan = PLAN_CYCLE[i % len(PLAN_CYCLE)]
-        billing_day = (i % 28) + 1
-
-        users[user_id] = {
-            "name": f"{first_name} {last_name}",
-            "email": f"{first_name.lower()}.{last_name.lower()}@gmail.com",
-            "plan": plan,
-            "billing_date": f"2026-10-{billing_day:02d}",
-            "amount": PLAN_PRICES[plan],
-            "payment_method": PAYMENT_METHODS[i % len(PAYMENT_METHODS)],
-        }
-    return users
-
-
-USERS_DB = _generate_users()
-
-
 # A tiny fake content catalog, keyed by genre, for recommend_genre().
+# Defined before _generate_users() so each sample user can be assigned a
+# favorite genre straight from these same keys.
 GENRE_CATALOG = {
     "action": ["Extraction", "Red Notice", "6 Underground"],
     "comedy": ["Murder Mystery", "Family Switch", "Do Revenge"],
@@ -91,6 +66,41 @@ GENRE_CATALOG = {
     "horror": ["The Haunting of Hill House", "Fear Street"],
     "documentary": ["Our Planet", "Tiger King", "American Murder"],
 }
+
+GENRE_CYCLE = list(GENRE_CATALOG.keys())
+
+
+def _generate_users():
+    """Builds the fake customer database: one entry per name in FIRST_NAMES,
+    cycling deterministically through plans, payment methods, billing days,
+    and favorite genres so the data looks varied without any randomness
+    (randomness would make the "database" different every time the app
+    process restarts, which makes testing and demoing annoying)."""
+    users = {}
+    for i, first_name in enumerate(FIRST_NAMES):
+        last_name = LAST_NAMES[i % len(LAST_NAMES)]
+        user_id = f"U{101 + i}"
+        plan = PLAN_CYCLE[i % len(PLAN_CYCLE)]
+        billing_day = (i % 28) + 1
+
+        # Every 6th user has no saved favorite genre, so the "genuinely
+        # missing — ask instead" path has real sample data to exercise,
+        # not just the happy path where a saved preference always exists.
+        favorite_genre = None if i % 6 == 5 else GENRE_CYCLE[i % len(GENRE_CYCLE)]
+
+        users[user_id] = {
+            "name": f"{first_name} {last_name}",
+            "email": f"{first_name.lower()}.{last_name.lower()}@gmail.com",
+            "plan": plan,
+            "billing_date": f"2026-10-{billing_day:02d}",
+            "amount": PLAN_PRICES[plan],
+            "payment_method": PAYMENT_METHODS[i % len(PAYMENT_METHODS)],
+            "favorite_genre": favorite_genre,
+        }
+    return users
+
+
+USERS_DB = _generate_users()
 
 
 # ---- Tool functions ---------------------------------------------------------
@@ -144,13 +154,32 @@ def update_plan(user_id, new_plan):
     }
 
 
-def recommend_genre(preference):
-    """Suggests titles from the fake catalog based on a genre the user mentions."""
+def recommend_genre(preference=None, user_id=None):
+    """Suggests titles from the fake catalog. If the customer stated a
+    genre this turn, `preference` is used as-is — that always wins, even
+    if it differs from what's on file. Otherwise, if a customer is
+    identified and has a saved favorite_genre, that's used automatically.
+    Only if neither is available does this ask for one."""
+    used_saved_preference = False
+
+    if not preference and user_id and user_id in USERS_DB:
+        preference = USERS_DB[user_id].get("favorite_genre")
+        used_saved_preference = preference is not None
+
+    if not preference:
+        return {
+            "error": "No genre preference given, and none saved for this customer.",
+            "message": "Ask the customer what genre they enjoy, then call this tool again with it.",
+        }
+
     preference_lower = preference.lower().strip()
 
     for genre, titles in GENRE_CATALOG.items():
         if genre in preference_lower or preference_lower in genre:
-            return {"matched_genre": genre, "recommendations": titles}
+            result = {"matched_genre": genre, "recommendations": titles}
+            if used_saved_preference:
+                result["note"] = "Based on this customer's saved favorite genre."
+            return result
 
     # No keyword matched anything in the catalog: fall back to a
     # generally popular pick instead of returning an empty result.
@@ -226,16 +255,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "recommend_genre",
-            "description": "Suggests shows/movies based on a genre or preference the user mentions (e.g. 'comedy', 'scary shows').",
+            "description": "Suggests shows/movies for the customer. If they stated a genre this turn, pass it as `preference`. If they didn't, call this tool anyway with no `preference` — it will automatically use the identified customer's saved favorite genre if they have one on file, or tell you to ask them if not.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "preference": {
                         "type": "string",
-                        "description": "The genre or type of content the user said they like.",
+                        "description": "The genre the customer explicitly mentioned in this message. Omit entirely if they didn't state one.",
                     },
                 },
-                "required": ["preference"],
+                "required": [],
             },
         },
     },
@@ -250,5 +279,14 @@ TOOL_FUNCTIONS = {
 
 # Tools that operate on "the current customer" rather than arguments the
 # model supplies. chatbot.execute_tool_call() auto-injects user_id for
-# any tool name in this set before calling it.
+# any tool name in this set before calling it. If no one is identified
+# yet, these tools are refused up front with a "please identify yourself"
+# response — see chatbot.py.
 USER_SCOPED_TOOLS = {"get_user_plan", "update_plan"}
+
+# Tools that USE the identified customer's account when one is available,
+# but work fine without one too — they just fall back to asking instead of
+# refusing outright. Unlike USER_SCOPED_TOOLS, these never trigger the
+# "please identify yourself" response; user_id is passed in as None if
+# nobody's identified, and the tool itself decides what to do with that.
+OPTIONAL_USER_SCOPED_TOOLS = {"recommend_genre"}

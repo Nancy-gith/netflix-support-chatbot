@@ -126,13 +126,23 @@ conversation.
 | **Calculator** (`add`) | Adds two numbers together | Ask something involving billing math, like "what would two plans together cost?" |
 | **Plan lookup** (`get_user_plan`) | Looks up which plan the currently-selected customer is on | Ask "what plan am I on?" or anything that needs to know your current plan first |
 | **Plan changer** (`update_plan`) | Changes the currently-selected customer's plan in the sample database | Ask to switch/upgrade/downgrade your plan, and confirm you want to |
-| **Recommender** (`recommend_genre`) | Suggests shows/movies from a small sample list, based on a genre you mention | Mention a genre you like, or ask for a recommendation |
+| **Recommender** (`recommend_genre`) | Suggests shows/movies from a small sample list | Ask for a recommendation, with or without mentioning a genre |
 
 Notice that the plan lookup and plan changer tools never ask you to type
 an account number into the chat — they either use whoever's identified in
 the sidebar automatically, or (if nobody is yet) trigger the "please
 select your name" prompt described above. You never type an ID yourself
 either way.
+
+**The recommender is a little different: it uses your saved taste if it
+has one.** Each sample customer has a made-up "favorite genre" on file
+(a few don't, on purpose — more on that below). If you ask for a
+recommendation without saying what genre you're in the mood for, and
+you're identified, the chatbot checks your saved favorite genre first and
+uses that automatically — no need to repeat yourself every time. If you
+do mention a genre in the moment ("actually, something scary"), that
+always wins over whatever's saved. And if there's nothing saved and you
+haven't said a genre either, it just asks — the same as it always did.
 
 ## Deployment: where the app lives, and where the secret key lives
 

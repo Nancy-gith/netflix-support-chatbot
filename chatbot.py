@@ -15,7 +15,7 @@ import json
 import requests
 
 from config import get_api_key
-from tools import TOOLS, TOOL_FUNCTIONS, USER_SCOPED_TOOLS, USERS_DB
+from tools import TOOLS, TOOL_FUNCTIONS, USER_SCOPED_TOOLS, OPTIONAL_USER_SCOPED_TOOLS, USERS_DB
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL = "openai/gpt-oss-20b"
@@ -52,6 +52,8 @@ Identification — when it's needed, and when it isn't:
 General questions like the ones above, or a recommendation based on a genre the customer mentions, do NOT require knowing who the customer is. Answer those directly, for anyone.
 
 Only two things require knowing the specific customer: looking up their actual current plan (get_user_plan) and changing their plan (update_plan). If the customer asks about their real plan or wants to change it, call the relevant tool anyway, even if you don't yet know who they are — do not ask them to identify themselves yourself, and do not guess or invent an identity. If no one is identified yet, the tool will handle telling them what to do next automatically. Once a customer has been identified in this session, keep using their account for these tools without asking again.
+
+Recommendations (recommend_genre) work differently: they're never blocked by not knowing who the customer is, but they DO get better when you do. If the customer states a genre this turn, pass it to the tool. If they ask for a recommendation without stating a genre, still call the tool right away with no preference argument — an identified customer may already have a saved favorite genre on file, in which case the tool uses it automatically and tells you it did. Only ask the customer what they enjoy if the tool comes back saying nothing is available.
 
 If a request needs something none of your tools can do (refund review, payment disputes, fraud, account recovery), tell the customer to contact Netflix customer care.
 
@@ -136,6 +138,12 @@ def execute_tool_call(tool_call, active_user_id):
     call the underlying function — there's nothing to look up — and we
     flag needs_identification=True so get_assistant_reply() can respond
     with a fixed, reliable message instead of leaving it to the model.
+
+    For tools in OPTIONAL_USER_SCOPED_TOOLS (recommend_genre), the account
+    ID is injected the same way, but a missing one is NOT treated as an
+    error — it's just passed through as None, and the tool decides for
+    itself what to do (e.g. fall back to asking for a preference instead
+    of refusing outright).
     """
     name = tool_call["function"]["name"]
     arguments = json.loads(tool_call["function"]["arguments"])
@@ -148,7 +156,7 @@ def execute_tool_call(tool_call, active_user_id):
         }
         return tool_message, True
 
-    if name in USER_SCOPED_TOOLS:
+    if name in USER_SCOPED_TOOLS or name in OPTIONAL_USER_SCOPED_TOOLS:
         arguments["user_id"] = active_user_id
 
     function = TOOL_FUNCTIONS.get(name)

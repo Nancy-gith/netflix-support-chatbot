@@ -29,7 +29,8 @@ real actions, not just talk.**
 
 There's no real login system. Instead, there's a list of about 40 made-up
 sample customers (names like "Priya Nair" or "Rohan Mehta"), each with a
-fake subscription plan, billing date, and payment method.
+fake subscription plan, billing date, payment method, and (for most of
+them) a saved favorite genre.
 
 You don't have to pick one to start chatting. General questions — how
 plans work, how to cancel, what payment methods are accepted, the refund
@@ -43,7 +44,13 @@ time.
 
 So, without picking anyone, you can:
 - Ask general questions about plans, cancelling, payment methods, and refunds
-- Ask for a show or movie recommendation based on a genre you like
+- Ask for a show or movie recommendation, stating a genre you like
+
+If you *have* picked who you are, asking for a recommendation without
+stating a genre uses your saved favorite genre automatically — no need to
+repeat it every time. (A handful of sample customers have no saved
+genre, on purpose, so the chatbot's fallback — just asking — has real
+data to show too.)
 
 And once you've picked who you are, you can also:
 - Ask what plan you're on
