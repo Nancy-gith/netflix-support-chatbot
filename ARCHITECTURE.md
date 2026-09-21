@@ -27,8 +27,9 @@ order, from opening the app to getting an answer.
    for a tool that needs to know who you are. Two things can happen:
    - **If nobody's identified yet**, the app doesn't guess or make
      something up. It replies: "To look that up, I'll need to know who
-     you are — please select your name below," and the sidebar's name
-     picker becomes impossible to miss (see "Identifying yourself" below).
+     you are — please select your name from the sidebar," and the
+     sidebar's name picker becomes impossible to miss (see "Identifying
+     yourself" below).
    - **If you're already identified** (see next step), it just answers,
      using your account automatically.
 
@@ -81,12 +82,12 @@ that works from the very first message, with no name picked.
 
 Only two things are tied to a specific person: looking up *your* current
 plan, and changing *your* plan. The moment you ask one of those and
-nobody's identified yet, the sidebar's caption turns into a clear
-prompt ("please select your name below") and the chat gives you the same
-message directly. Once you pick a name, that choice is remembered for the
-rest of the session — every later personal question just works, without
-asking again — and you can still pick a *different* name at any time if
-you want the chatbot to switch who it's helping.
+nobody's identified yet, the sidebar's caption turns into a clear prompt,
+and the chat gives you the same message directly: "please select your
+name from the sidebar." Once you pick a name, that choice is remembered
+for the rest of the session — every later personal question just works,
+without asking again — and you can still pick a *different* name at any
+time if you want the chatbot to switch who it's helping.
 
 One deliberate detail: the "please select your name" message is always
 worded exactly the same way, rather than left up to the model to phrase

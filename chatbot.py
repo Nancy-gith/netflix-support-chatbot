@@ -25,7 +25,7 @@ MODEL = "openai/gpt-oss-20b"
 # something the model writes itself — see the note in get_assistant_reply()
 # for why that's deliberate.
 IDENTIFICATION_NEEDED_MESSAGE = (
-    "To look that up, I'll need to know who you are — please select your name below."
+    "To look that up, I'll need to know who you are — please select your name from the sidebar."
 )
 
 SYSTEM_PROMPT = """You are a polite, on-topic customer support assistant for a Netflix-style streaming service. Stay focused on topics related to the service: plans, billing, accounts, and content recommendations.

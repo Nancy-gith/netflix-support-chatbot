@@ -382,7 +382,7 @@ to know. The identification flow was reworked around that idea.
 
   ```python
   IDENTIFICATION_NEEDED_MESSAGE = (
-      "To look that up, I'll need to know who you are — please select your name below."
+      "To look that up, I'll need to know who you are — please select your name from the sidebar."
   )
   ```
 
