@@ -84,6 +84,15 @@ From there, the project was extended in this order:
     prompt to pick a name — see
     [Section 3.6](#36-identification-general-questions-vs-account-specific-ones)
     for the mechanism.
+18. **Fixed prices sometimes displaying as raw, unrendered markdown**
+    (literal `**` and `` ` `` characters visible instead of bold text).
+    The cause: Streamlit's markdown renderer treats text between two `$`
+    characters as LaTeX math, and any reply mentioning two or more prices
+    has two or more `$` characters, which could accidentally start a
+    "math span" that swallows everything — including bold markers —
+    between them. Fixed by escaping every `$` as `\$` before rendering,
+    in a small `_render_chat_text()` helper in `app.py` used everywhere
+    chat content is displayed.
 
 ---
 

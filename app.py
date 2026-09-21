@@ -24,6 +24,20 @@ st.caption(
 PLACEHOLDER = "Select a customer to begin..."
 
 
+def _render_chat_text(text):
+    """Renders chat text as markdown, working around a Streamlit quirk:
+    st.markdown treats text between two `$` characters as LaTeX math, not
+    as a literal dollar sign. Since prices in this app are always quoted
+    like "$8.99", a reply mentioning two or more prices has two or more
+    `$` characters — and everything between the first and second one
+    (including any **bold** or `code` markers in there) gets swallowed
+    into an accidental "math" span and shown as raw, unrendered text
+    instead. Escaping every `$` as `\\$` tells the renderer "this is a
+    literal dollar sign," which fixes both problems: the price displays
+    correctly, and it stops eating the markdown around it."""
+    st.markdown(text.replace("$", "\\$"))
+
+
 def _greeting_message(user):
     """A friendly, templated greeting shown the moment a customer becomes
     identified — the first time, and again every time the sidebar
@@ -122,7 +136,7 @@ if (
 for message in st.session_state.messages:
     if message["role"] in ("user", "assistant") and message.get("content"):
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+            _render_chat_text(message["content"])
 
 # ---- Handle new input -------------------------------------------------
 # Available immediately, with no identification required — general
@@ -133,7 +147,7 @@ user_input = st.chat_input("Ask about plans, billing, or get a recommendation...
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
-        st.markdown(user_input)
+        _render_chat_text(user_input)
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
@@ -141,7 +155,7 @@ if user_input:
                 st.session_state.messages,
                 active_user_id=st.session_state.active_user_id,
             )
-        st.markdown(reply_text)
+        _render_chat_text(reply_text)
 
     if needs_identification:
         # Rerun so the sidebar's warning shows up immediately, right after
