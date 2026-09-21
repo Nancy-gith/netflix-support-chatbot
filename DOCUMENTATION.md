@@ -114,6 +114,14 @@ From there, the project was extended in this order:
     `USER_SCOPED_TOOLS` call when nobody's identified — same refusal, same
     fixed message. See the end of
     [Section 3.7](#37-recommend_genre-falling-back-to-a-saved-preference).
+21. **Stopped a failed Groq API call from crashing the app.** A rate
+    limit, timeout, dropped connection, or 5xx error from Groq previously
+    propagated all the way up as an unhandled exception, and Streamlit
+    would show the customer a raw Python traceback. `get_assistant_reply()`
+    now wraps the API call in a `try`/`except` and returns a friendly
+    fallback message instead — see
+    [Section 3.8](#38-handling-a-failed-groq-api-call) for what's caught
+    and what deliberately isn't.
 
 ---
 
@@ -551,6 +559,57 @@ This is the same pattern as 3.6's identification gate, applied to a tool
 that's normally *optional*-scoped: the deciding fact (does answering this
 specific request require knowing who's asking) still lives in code, not
 in the model's in-the-moment judgment about what to say.
+
+### 3.8 Handling a failed Groq API call
+
+Every request to Groq can fail in ways that have nothing to do with the
+conversation itself: the free-tier rate limit gets hit (this happened
+repeatedly during this project's own testing), the network drops, Groq
+has a slow moment and the request times out, or it returns a 5xx error.
+Before this was handled, any of those raised an exception that propagated
+all the way up through `get_assistant_reply()` and `app.py`, and
+Streamlit rendered it as a raw Python traceback in the chat — not
+something a customer using the live app should ever see.
+
+The fix wraps just the API call and response parsing, inside the loop in
+`get_assistant_reply()`:
+
+```python
+try:
+    response = call_groq(request_messages)
+    message = response["choices"][0]["message"]
+except (requests.exceptions.RequestException, KeyError, IndexError, ValueError):
+    messages.append({"role": "assistant", "content": API_ERROR_MESSAGE})
+    return messages, API_ERROR_MESSAGE, False
+```
+
+`requests.exceptions.RequestException` is the base class for everything
+the `requests` library raises for network-level problems — connection
+errors, timeouts, and (since `call_groq()` calls
+`response.raise_for_status()`) HTTP error statuses like a 429 rate limit
+or a 500 from Groq's side. `KeyError`/`IndexError`/`ValueError` cover the
+rarer case where a response comes back `200 OK` but isn't shaped the way
+the code expects, or isn't valid JSON at all. Either way, the turn ends
+with `API_ERROR_MESSAGE` ("Something went wrong, please try again in a
+moment.") — a fixed string, in the same "answer this deterministically,
+not via the model" style as `IDENTIFICATION_NEEDED_MESSAGE`, since there's
+no reply from the model to relay in the first place when the API call
+itself is what failed.
+
+**What's deliberately NOT caught here:** `config.get_api_key()` raising
+`RuntimeError` when no key is configured at all. That's a setup problem,
+not a transient one — showing "try again in a moment" for a missing key
+would be actively misleading, since trying again would never fix it. It's
+left to surface normally (visible during local development if `.env` is
+missing) rather than folded into the same generic fallback as an actual
+API failure.
+
+Verified with a mix of unit tests (monkeypatching `call_groq` to raise an
+`HTTPError`, a `Timeout`, a `ConnectionError`, and to return a malformed
+response shape — all four caught correctly, real conversation flow
+unaffected by the change) and this project's own repeated real 429s
+during earlier testing sessions, which the fix now catches instead of
+crashing.
 
 ---
 

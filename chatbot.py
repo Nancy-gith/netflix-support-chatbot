@@ -28,6 +28,12 @@ IDENTIFICATION_NEEDED_MESSAGE = (
     "To look that up, I'll need to know who you are — please select your name from the sidebar."
 )
 
+# Shown whenever the Groq API call itself fails — a rate limit, a
+# timeout, a dropped connection, a 5xx error, or a response that doesn't
+# come back in the shape we expect. None of that is the customer's fault
+# and none of it should ever surface as a raw traceback in the chat UI.
+API_ERROR_MESSAGE = "Something went wrong, please try again in a moment."
+
 SYSTEM_PROMPT = """You are a polite, on-topic customer support assistant for a Netflix-style streaming service. Stay focused on topics related to the service: plans, billing, accounts, and content recommendations.
 
 STRICT SCOPE RULE — apply this to every single message, no exceptions:
@@ -214,8 +220,22 @@ def get_assistant_reply(messages, active_user_id=None, max_tool_hops=5):
     request_messages = _build_request_messages(messages, active_user_id)
 
     for _ in range(max_tool_hops):
-        response = call_groq(request_messages)
-        message = response["choices"][0]["message"]
+        try:
+            response = call_groq(request_messages)
+            message = response["choices"][0]["message"]
+        except (requests.exceptions.RequestException, KeyError, IndexError, ValueError):
+            # RequestException covers rate limits, timeouts, dropped
+            # connections, and 4xx/5xx errors (raise_for_status raises an
+            # HTTPError, which is a RequestException). KeyError/IndexError/
+            # ValueError cover the rarer case of a response that comes
+            # back 200 OK but not shaped the way we expect (e.g. no
+            # "choices", or a body that isn't valid JSON at all). Either
+            # way, end this turn with a friendly message instead of
+            # letting the exception propagate up into the Streamlit UI as
+            # a raw traceback.
+            messages.append({"role": "assistant", "content": API_ERROR_MESSAGE})
+            return messages, API_ERROR_MESSAGE, False
+
         messages.append(message)
         request_messages.append(message)
 
