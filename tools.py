@@ -5,49 +5,80 @@
 # plain Python functions that do the work, the JSON-schema descriptions that
 # tell the model the tools exist, and a name -> function lookup table.
 #
-# Nothing in this file talks to Groq. That keeps it simple to test and
-# explain in isolation.
+# Nothing in this file talks to Groq, and nothing in this file talks to
+# Streamlit. That keeps it simple to test and explain in isolation.
 # ---------------------------------------------------------------------------
 
 # ---- Fake "database" -------------------------------------------------------
 # In a real product this would be a call to a customer database. Here it's
 # just a dict in memory, so changes made by update_plan() reset every time
-# the app restarts.
+# the app process restarts.
+#
+# USERS_DB is generated from a name list below instead of written out by
+# hand as 40 separate dict entries. That's purely to keep this file
+# readable — the generation logic (_generate_users) is the only part
+# that's slightly clever, and it's simple: walk the name list once,
+# cycling through plans/payment methods/billing days as we go, so every
+# user ends up with a plausible, varied profile.
 
-USERS_DB = {
-    "U101": {
-        "name": "Aditi Sharma",
-        "email": "aditi.sharma@gmail.com",
-        "plan": "Premium",
-        "billing_date": "2026-10-05",
-        "amount": 26.99,
-        "payment_method": "Visa ending in 4242",
-    },
-    "U102": {
-        "name": "Rohan Mehta",
-        "email": "rohan.mehta@gmail.com",
-        "plan": "Standard with ads",
-        "billing_date": "2026-10-12",
-        "amount": 8.99,
-        "payment_method": "Mastercard ending in 7788",
-    },
-    "U103": {
-        "name": "Priya Nair",
-        "email": "priya.nair@gmail.com",
-        "plan": "Standard",
-        "billing_date": "2026-10-20",
-        "amount": 19.99,
-        "payment_method": "PayPal",
-    },
-}
+FIRST_NAMES = [
+    "Aditi", "Rohan", "Priya", "Karan", "Neha", "Vikram", "Ananya", "Arjun", "Ishita", "Aditya",
+    "Sneha", "Rahul", "Pooja", "Siddharth", "Meera", "Varun", "Kavya", "Nikhil", "Riya", "Aman",
+    "Divya", "Suresh", "Lakshmi", "Manoj", "Shreya", "Abhishek", "Nisha", "Rajesh", "Tanvi", "Yash",
+    "Simran", "Harsh", "Alisha", "Vivek", "Pallavi", "Gaurav", "Swati", "Deepak", "Radhika", "Ashish",
+]
 
-# Monthly price for each plan. update_plan() uses this to keep amount and
-# plan in sync when a user switches plans.
+LAST_NAMES = [
+    "Sharma", "Mehta", "Nair", "Kapoor", "Verma", "Singh", "Gupta", "Reddy", "Iyer", "Joshi",
+    "Malhotra", "Chatterjee", "Bose", "Rao", "Desai", "Kulkarni", "Chauhan", "Mishra", "Pillai", "Agarwal",
+]
+
+# The three plan tiers. "Standard with ads" is the entry-level / "Basic"
+# tier — kept under this exact name so it matches PLAN_PRICES and the
+# pricing described in the system prompt.
+PLAN_CYCLE = ["Premium", "Standard", "Standard with ads"]
+
 PLAN_PRICES = {
     "Standard with ads": 8.99,
     "Standard": 19.99,
     "Premium": 26.99,
 }
+
+PAYMENT_METHODS = [
+    "Visa ending in 4242",
+    "Mastercard ending in 7788",
+    "PayPal",
+    "Amex ending in 1005",
+    "UPI",
+]
+
+
+def _generate_users():
+    """Builds the fake customer database: one entry per name in FIRST_NAMES,
+    cycling deterministically through plans, payment methods, and billing
+    days so the data looks varied without any randomness (randomness would
+    make the "database" different every time the app process restarts,
+    which makes testing and demoing annoying)."""
+    users = {}
+    for i, first_name in enumerate(FIRST_NAMES):
+        last_name = LAST_NAMES[i % len(LAST_NAMES)]
+        user_id = f"U{101 + i}"
+        plan = PLAN_CYCLE[i % len(PLAN_CYCLE)]
+        billing_day = (i % 28) + 1
+
+        users[user_id] = {
+            "name": f"{first_name} {last_name}",
+            "email": f"{first_name.lower()}.{last_name.lower()}@gmail.com",
+            "plan": plan,
+            "billing_date": f"2026-10-{billing_day:02d}",
+            "amount": PLAN_PRICES[plan],
+            "payment_method": PAYMENT_METHODS[i % len(PAYMENT_METHODS)],
+        }
+    return users
+
+
+USERS_DB = _generate_users()
+
 
 # A tiny fake content catalog, keyed by genre, for recommend_genre().
 GENRE_CATALOG = {
@@ -66,6 +97,13 @@ GENRE_CATALOG = {
 # Each function below is a normal Python function. The only thing that makes
 # it a "tool" is that it's listed in TOOLS (so the model knows it exists) and
 # in TOOL_FUNCTIONS (so our code can call it by name).
+#
+# get_user_plan and update_plan both take a user_id — but the model is
+# never asked to supply one (see TOOLS below: neither schema lists
+# user_id as a parameter). Instead chatbot.py fills it in automatically
+# from whichever customer is selected in the Streamlit sidebar. The
+# functions themselves still accept user_id as a normal argument, which
+# keeps them simple to call directly and test on their own.
 
 
 def add(a, b):
@@ -75,6 +113,8 @@ def add(a, b):
 
 def get_user_plan(user_id):
     """Looks up a user's current subscription plan."""
+    if user_id is None:
+        return {"error": "No customer is currently selected. Ask them to choose their name in the sidebar."}
     user = USERS_DB.get(user_id)
     if user is None:
         return {"error": f"No user found with id '{user_id}'"}
@@ -83,6 +123,8 @@ def get_user_plan(user_id):
 
 def update_plan(user_id, new_plan):
     """Changes a user's subscription plan in the fake database."""
+    if user_id is None:
+        return {"error": "No customer is currently selected. Ask them to choose their name in the sidebar."}
     if user_id not in USERS_DB:
         return {"error": f"No user found with id '{user_id}'"}
     if new_plan not in PLAN_PRICES:
@@ -123,6 +165,13 @@ def recommend_genre(preference):
 # TOOLS is sent to Groq so the model knows what tools exist and how to call
 # them (name, description, expected arguments).
 #
+# Note that "get_user_plan" and "update_plan" do NOT list user_id as a
+# parameter here. That's what stops the model from ever asking the
+# customer "what's your account ID?" in the chat — as far as the model is
+# concerned, those tools just don't take one. chatbot.py fills user_id in
+# automatically before calling the real Python function (see
+# chatbot.execute_tool_call).
+#
 # TOOL_FUNCTIONS maps each tool's name to the Python function that implements
 # it. This dict is what makes tool routing "dynamic": the code that executes
 # a tool call (see chatbot.py) just does TOOL_FUNCTIONS[name](**arguments) —
@@ -148,16 +197,11 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_user_plan",
-            "description": "Looks up which subscription plan a user is currently on.",
+            "description": "Looks up which subscription plan the currently-selected customer is on. Takes no arguments — the customer is already known from the session.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "user_id": {
-                        "type": "string",
-                        "description": "The user's account ID, e.g. 'U101'.",
-                    },
-                },
-                "required": ["user_id"],
+                "properties": {},
+                "required": [],
             },
         },
     },
@@ -165,20 +209,16 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "update_plan",
-            "description": "Changes a user's subscription plan. Only call this after the user has clearly confirmed which plan they want.",
+            "description": "Changes the currently-selected customer's subscription plan. Only call this after the customer has clearly confirmed which plan they want.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "user_id": {
-                        "type": "string",
-                        "description": "The user's account ID, e.g. 'U101'.",
-                    },
                     "new_plan": {
                         "type": "string",
                         "description": "One of: 'Standard with ads', 'Standard', 'Premium'.",
                     },
                 },
-                "required": ["user_id", "new_plan"],
+                "required": ["new_plan"],
             },
         },
     },
@@ -207,3 +247,8 @@ TOOL_FUNCTIONS = {
     "update_plan": update_plan,
     "recommend_genre": recommend_genre,
 }
+
+# Tools that operate on "the current customer" rather than arguments the
+# model supplies. chatbot.execute_tool_call() auto-injects user_id for
+# any tool name in this set before calling it.
+USER_SCOPED_TOOLS = {"get_user_plan", "update_plan"}

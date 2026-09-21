@@ -50,6 +50,16 @@ From there, the project was extended in this order:
 9. **Set up git and prepared for deployment** to Streamlit Community
    Cloud, with secrets handled outside of source control.
 10. **Wrote this document.**
+11. **Pushed to GitHub and deployed to Streamlit Community Cloud** with
+    the rotated API key stored in Streamlit's encrypted secrets.
+12. **Expanded the fake database to 40 sample customers** (up from 3),
+    generated procedurally from a name list instead of written out by
+    hand, spread evenly across all three plan tiers.
+13. **Replaced the in-chat "what's your account ID?" flow** with a
+    sidebar dropdown that selects the active customer for the session,
+    and updated the tool-calling logic so account IDs are injected
+    automatically instead of being asked for or guessed by the model —
+    see [Section 3.5](#35-how-the-active-customer-is-selected-and-used).
 
 ---
 
@@ -151,6 +161,14 @@ Two things happen at different times and it's worth keeping them separate:
   doesn't need to know how many tools exist or what they're called. Adding
   a fifth tool means adding it to `tools.py` — `chatbot.py` doesn't change.
 
+  One wrinkle: `get_user_plan` and `update_plan` don't expose a `user_id`
+  parameter to the model at all — their entries in `tools.TOOLS` simply
+  don't list one. `execute_tool_call()` checks a small set,
+  `tools.USER_SCOPED_TOOLS`, and for any tool name in that set it injects
+  `arguments["user_id"]` itself, from the sidebar selection, before
+  calling the function. See [Section 3.5](#35-how-the-active-customer-is-selected-and-used)
+  for the full reasoning.
+
 ### 3.3 How conversation history is managed
 
 `st.session_state.messages` is a single Python list that grows for the
@@ -184,6 +202,78 @@ sidebar). It only:
 plain Python module that takes a list in and returns a list + string out.
 That means the same `chatbot.py` would work behind a CLI loop, a Flask
 route, or a test script with zero changes.
+
+### 3.5 How the active customer is selected and used
+
+Earlier versions of this project asked the customer to type their account
+ID into the chat (e.g. "What plan is U101 on?"). That's replaced with a
+**sidebar dropdown** (`st.selectbox`) in `app.py` that lists every sample
+customer by name, sorted alphabetically:
+
+```python
+sorted_users = sorted(USERS_DB.items(), key=lambda item: item[1]["name"])
+label_to_id = {
+    f"{info['name']} — {info['plan']} ({user_id})": user_id
+    for user_id, info in sorted_users
+}
+selected_label = st.selectbox("Search or select a customer", options=list(label_to_id.keys()))
+st.session_state.active_user_id = label_to_id[selected_label]
+```
+
+**Why `st.selectbox` counts as "searchable" with no extra library.**
+Streamlit's selectbox renders as a combobox: clicking it opens the full
+list, and typing filters it live by matching text — the same interaction
+pattern as a typeahead/autocomplete field. With 40 names that's enough to
+jump straight to a match by typing a few letters, without adding a
+third-party searchable-dropdown package for what's still a fairly short
+list. If the customer list grew into the thousands, a proper
+type-ahead-with-backend-filtering widget would be worth adding — for 40
+sample users it would be over-engineering.
+
+**How the selection reaches the model.** `st.session_state.active_user_id`
+is passed into `chatbot.get_assistant_reply(messages, active_user_id=...)`
+on every turn. Inside `chatbot.py`, `_build_request_messages()` builds a
+short context note (via `_active_user_context()`) describing exactly who's
+being helped right now — name, account ID, current plan — and appends it
+to the system message *only for that outgoing request*. It's never
+written into the permanently stored `messages` history. Two consequences
+of that:
+
+1. The model is told who it's talking to before it ever needs to ask,
+   which is why it never says "what's your account ID?" — the answer is
+   already in front of it.
+2. Because the note is rebuilt fresh from `active_user_id` on every call
+   rather than baked into history once, **switching the dropdown mid-chat
+   immediately changes who subsequent tool calls target** — no need to
+   reset the conversation. The note also explicitly tells the model that
+   it overrides anything said earlier in the visible chat about a
+   different customer, which matters once a switch has happened (without
+   that instruction, the model would sometimes keep repeating an older
+   customer's plan from earlier in the same conversation instead of
+   re-checking — this was caught in testing and is why that line is in
+   `_active_user_context()`).
+
+**Why the tools themselves don't take a `user_id` the model fills in.**
+`get_user_plan` and `update_plan`'s schemas in `tools.TOOLS` have no
+`user_id` property at all — compare that to `recommend_genre`, which does
+ask the model for a `preference` argument. That's deliberate: `user_id`
+isn't something the *conversation* should determine, it's session state
+the UI already knows with certainty. Letting the model supply it would
+reopen the door to the model asking for it, guessing it, or (worse) using
+whatever ID a previous turn mentioned. Instead
+`chatbot.execute_tool_call()` injects it directly from `active_user_id`
+for any tool listed in `tools.USER_SCOPED_TOOLS`, so the correct account
+is used with certainty — not "high probability."
+
+**Switching users doesn't clear the chat.** Picking a different name in
+the dropdown keeps the same conversation thread going; it only changes
+which account subsequent tool calls resolve against. That mirrors how a
+real support agent works — they keep their own chat/notes open while
+pulling up a different customer's record — and it's what was asked for:
+"switching should update who the bot is talking to," not start a new
+conversation. If a clean break per customer were wanted instead, the
+`selectbox`'s `on_change` could call the same reset logic the "Reset
+conversation" button uses.
 
 ---
 
@@ -239,6 +329,20 @@ Railway, which work fine too but need more manual setup (build commands,
 env var dashboards, sometimes a credit card) for the same outcome. For a
 single Streamlit script with one secret, Community Cloud is the least
 amount of setup for the same result.
+
+**Why move account selection to a sidebar dropdown instead of letting the
+model ask for an ID in chat?**
+Two reasons. First, realism: a real support widget knows who's logged in —
+it doesn't ask the customer to type their own account number into a chat
+box, and letting the model do that was really a workaround for not having
+a proper session concept yet. Second, reliability: an ID typed into chat
+is just more text the model has to parse and could mishear, mistype into
+a tool call, or carry over incorrectly after the topic moves on. A
+dropdown makes the account a fact of the session instead of a claim in
+the conversation, and the tool-execution layer (not the model) is what
+attaches it to every relevant tool call — see
+[Section 3.5](#35-how-the-active-customer-is-selected-and-used) for the
+mechanism.
 
 **Why `update_plan` and `recommend_genre` as the two new tools, instead of
 `get_billing_info`?**
@@ -335,6 +439,15 @@ If asked to walk through this project, the throughline is:
   honest answer is: swap `USERS_DB` for a real database call inside the
   same functions — the tool-calling loop and routing logic wouldn't need
   to change at all.
+- **"Who is the model talking to" is session state, not conversation
+  state.** The account ID never comes from the model or from parsing chat
+  text — it comes from `st.session_state.active_user_id`, set by the
+  sidebar dropdown, and gets injected into tool calls by
+  `chatbot.execute_tool_call()`. This is worth highlighting if asked "how
+  would you handle real user authentication?" — the answer is that the
+  session-state pattern is already the right shape; the dropdown would
+  just be replaced by a real login/session lookup, and nothing about the
+  tool-calling loop would need to change.
 - **Deployment is deliberately the simplest option that meets the bar**
   (a public URL, secrets not exposed) — Streamlit Community Cloud over a
   custom server, because the goal was a shareable demo, not a scalable
