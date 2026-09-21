@@ -60,6 +60,11 @@ From there, the project was extended in this order:
     and updated the tool-calling logic so account IDs are injected
     automatically instead of being asked for or guessed by the model —
     see [Section 3.5](#35-how-the-active-customer-is-selected-and-used).
+14. **Added a visible greeting on customer switch.** Selecting a name in
+    the sidebar (including the first name selected on page load) now
+    posts a "Hi \<first name\>!" message directly into the chat, so a
+    mid-conversation switch is obvious in the transcript itself and not
+    just a quiet change in the sidebar.
 
 ---
 
@@ -274,6 +279,31 @@ pulling up a different customer's record — and it's what was asked for:
 conversation. If a clean break per customer were wanted instead, the
 `selectbox`'s `on_change` could call the same reset logic the "Reset
 conversation" button uses.
+
+**Making a switch visible in the transcript, not just the sidebar.**
+Since the chat isn't reset on switch, the first version of this feature
+had a rough edge: nothing in the visible chat itself signaled that the
+customer had changed — only the sidebar caption did, and the last few
+messages on screen still visually "belonged" to whoever was active
+before. The fix, in `app.py`, is a small `_greeting_message()` helper and
+a one-line check:
+
+```python
+if st.session_state.active_user_id != st.session_state.greeted_user_id:
+    st.session_state.messages.append(_greeting_message(active_user))
+    st.session_state.greeted_user_id = st.session_state.active_user_id
+```
+
+`greeted_user_id` tracks who the chat last greeted. Whenever the active
+customer differs from that (which is true both on the very first run,
+since it starts as `None`, and immediately after a dropdown switch), a
+templated "Hi \<first name\>! 👋 ..." message is appended to the visible
+chat before the history is rendered. It's plain Python string
+formatting — not a model call — which keeps it instant, free, and
+exactly predictable, and it's added as a real `assistant` message in
+`st.session_state.messages`, so it renders through the same history loop
+as everything else and is also visible to the model as prior context on
+the next turn.
 
 ---
 

@@ -21,6 +21,19 @@ st.caption(
     "Demo project — fake sample data only, not affiliated with or using real Netflix data."
 )
 
+
+def _greeting_message(user):
+    """A friendly, templated greeting shown the moment a customer becomes
+    active — on first load, and again every time the sidebar selection
+    changes. This is plain Python string formatting, not a model call: it's
+    instant, free, and always says exactly what we want it to say."""
+    first_name = user["name"].split()[0]
+    return {
+        "role": "assistant",
+        "content": f"Hi {first_name}! 👋 I'm your Netflix support assistant. How can I help you today?",
+    }
+
+
 # ---- Conversation history ----------------------------------------------
 # Initialized once per browser session. Every user and assistant message
 # from here on gets appended to this same list, which is what makes this a
@@ -28,6 +41,9 @@ st.caption(
 # the full history on every request, not just the latest message.
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # No one has been greeted yet — the check further down will fire once
+    # the sidebar below determines the initial active customer.
+    st.session_state.greeted_user_id = None
 
 # ---- Sidebar: pick which customer you're chatting as ----------------------
 # This replaces asking the customer to type their account ID into the chat.
@@ -65,7 +81,17 @@ with st.sidebar:
 
     if st.button("Reset conversation"):
         st.session_state.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        st.session_state.greeted_user_id = None
         st.rerun()
+
+# ---- Greet the active customer -----------------------------------------
+# Fires once whenever active_user_id changes — including the very first
+# run, since greeted_user_id starts as None. This is what makes a mid-chat
+# switch visible IN the chat itself ("Hi Rahul!") instead of only showing
+# up as a quiet change in the sidebar.
+if st.session_state.active_user_id != st.session_state.greeted_user_id:
+    st.session_state.messages.append(_greeting_message(active_user))
+    st.session_state.greeted_user_id = st.session_state.active_user_id
 
 # ---- Render existing history ------------------------------------------
 # We skip the system message (internal instructions, not part of the visible
