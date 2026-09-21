@@ -3,8 +3,8 @@
 #
 # The core conversation engine. This file knows nothing about Streamlit —
 # it just takes a list of chat messages plus which customer is currently
-# selected, talks to Groq, runs whatever tools the model decides to call,
-# and returns the updated conversation.
+# identified (if any), talks to Groq, runs whatever tools the model decides
+# to call, and returns the updated conversation.
 #
 # That separation is deliberate: app.py (the UI) could be swapped for a
 # command-line loop or a different framework without touching this file.
@@ -20,6 +20,14 @@ from tools import TOOLS, TOOL_FUNCTIONS, USER_SCOPED_TOOLS, USERS_DB
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 MODEL = "openai/gpt-oss-20b"
 
+# Shown whenever the model tries to look up or change a specific customer's
+# account but no one has been identified yet. This is a fixed string, not
+# something the model writes itself — see the note in get_assistant_reply()
+# for why that's deliberate.
+IDENTIFICATION_NEEDED_MESSAGE = (
+    "To look that up, I'll need to know who you are — please select your name below."
+)
+
 SYSTEM_PROMPT = """You are a polite, on-topic customer support assistant for a Netflix-style streaming service. Stay focused on topics related to the service: plans, billing, accounts, and content recommendations.
 
 STRICT SCOPE RULE — apply this to every single message, no exceptions:
@@ -34,9 +42,18 @@ Plans and pricing:
 - Extra member add-on: $7.99/month (with ads) or $9.99/month (ad-free) — Standard/Premium only
 - No free trial is currently offered. Subscriptions can be cancelled or paused anytime.
 
-You have tools for looking up the current customer's plan, changing their plan, doing billing math, and recommending shows or movies. The customer's identity is already known from the session (shown to you in a short context note below the conversation) — never ask them for their account ID, and never ask "who am I speaking with." Use a tool whenever it would give a more accurate answer than guessing — look up the customer's real plan instead of assuming it, do billing math with the calculator tool instead of in your head, and only change a plan after the customer has clearly confirmed the new plan they want.
+General policies — you can answer these for ANYONE, even if you don't know who they are yet:
+- Cancelling: turn off auto-renew in the account's payment settings, anytime. Access continues until the end of the current billing period — no early cutoff, no cancellation fee.
+- Payment methods accepted: major debit/credit cards (Visa, Mastercard, Amex), PayPal, and UPI.
+- Refunds: payments are generally non-refundable, but billing-error refund requests are reviewed case-by-case — direct the customer to contact customer care for that.
+- How the plans differ: covered in the pricing list above.
 
-If a request needs something none of your tools can do (refunds, payment disputes, fraud, account recovery), tell the customer to contact Netflix customer care.
+Identification — when it's needed, and when it isn't:
+General questions like the ones above, or a recommendation based on a genre the customer mentions, do NOT require knowing who the customer is. Answer those directly, for anyone.
+
+Only two things require knowing the specific customer: looking up their actual current plan (get_user_plan) and changing their plan (update_plan). If the customer asks about their real plan or wants to change it, call the relevant tool anyway, even if you don't yet know who they are — do not ask them to identify themselves yourself, and do not guess or invent an identity. If no one is identified yet, the tool will handle telling them what to do next automatically. Once a customer has been identified in this session, keep using their account for these tools without asking again.
+
+If a request needs something none of your tools can do (refund review, payment disputes, fraud, account recovery), tell the customer to contact Netflix customer care.
 
 Keep responses friendly and concise. Where it fits naturally, ask what genre the customer enjoys so you can recommend something with the recommend_genre tool.
 
@@ -45,15 +62,17 @@ Reminder: never generate off-topic content (poems, jokes, trivia, general knowle
 
 
 def _active_user_context(active_user_id):
-    """Builds a short, plain-language note describing who the chatbot is
-    currently talking to, based on the sidebar selection in app.py. This
-    is what lets the model skip ever asking "what's your account ID?" —
-    it's simply told upfront."""
+    """Builds a short, plain-language note describing who (if anyone) the
+    chatbot is currently talking to, based on the sidebar selection in
+    app.py. This is what lets the model skip ever asking "what's your
+    account ID?" itself — it's simply told upfront, one way or the other."""
     if not active_user_id or active_user_id not in USERS_DB:
         return (
-            "No customer is currently selected in the sidebar. If the "
-            "request needs an account (plan lookup or plan change), ask "
-            "the customer to select their name from the sidebar first."
+            "No customer is identified in this session yet. General questions "
+            "(policies, pricing, recommendations by genre) don't need one — "
+            "answer those normally. If the customer asks about their own plan "
+            "or wants to change it, still call get_user_plan or update_plan; "
+            "don't ask who they are yourself."
         )
 
     user = USERS_DB[active_user_id]
@@ -103,7 +122,8 @@ def call_groq(messages):
 
 def execute_tool_call(tool_call, active_user_id):
     """Runs a single tool call the model asked for and packages the result
-    as a 'tool' message ready to send back to Groq.
+    as a 'tool' message ready to send back to Groq. Returns a
+    (tool_message, needs_identification) pair.
 
     This is the "dynamic routing" step: we don't check `if name == "add"`
     or `elif name == "get_user_plan"`. We just look the name up in
@@ -112,11 +132,21 @@ def execute_tool_call(tool_call, active_user_id):
 
     For tools in USER_SCOPED_TOOLS (get_user_plan, update_plan), the
     account ID is injected here from the sidebar selection rather than
-    coming from the model — the model was never given a user_id parameter
-    to fill in for these tools in the first place.
+    coming from the model. If no customer is identified yet, we don't even
+    call the underlying function — there's nothing to look up — and we
+    flag needs_identification=True so get_assistant_reply() can respond
+    with a fixed, reliable message instead of leaving it to the model.
     """
     name = tool_call["function"]["name"]
     arguments = json.loads(tool_call["function"]["arguments"])
+
+    if name in USER_SCOPED_TOOLS and active_user_id is None:
+        tool_message = {
+            "role": "tool",
+            "tool_call_id": tool_call["id"],
+            "content": json.dumps({"error": "No customer identified yet."}),
+        }
+        return tool_message, True
 
     if name in USER_SCOPED_TOOLS:
         arguments["user_id"] = active_user_id
@@ -132,11 +162,12 @@ def execute_tool_call(tool_call, active_user_id):
             # error back to the model so it can recover or apologize.
             result = {"error": str(exc)}
 
-    return {
+    tool_message = {
         "role": "tool",
         "tool_call_id": tool_call["id"],
         "content": json.dumps(result),
     }
+    return tool_message, False
 
 
 def get_assistant_reply(messages, active_user_id=None, max_tool_hops=5):
@@ -144,11 +175,14 @@ def get_assistant_reply(messages, active_user_id=None, max_tool_hops=5):
     run them and call the model again, repeating until it gives a plain
     text answer (or we hit the safety cap on tool round-trips).
 
+    Returns (messages, reply_text, needs_identification).
+
     `messages` is the permanent session history — it's mutated in place
     and also returned, so callers can keep using the same list across
     turns. `active_user_id` is passed in fresh on every call (it comes
-    from the sidebar dropdown in app.py), so switching the selected
-    customer between turns takes effect on the very next message.
+    from the sidebar dropdown in app.py, and may be None if no one has
+    been identified yet), so switching or setting the selected customer
+    between turns takes effect on the very next message.
     """
     request_messages = _build_request_messages(messages, active_user_id)
 
@@ -162,14 +196,25 @@ def get_assistant_reply(messages, active_user_id=None, max_tool_hops=5):
         if not tool_calls:
             # No tool calls means the model is done — this is the final
             # answer for this turn.
-            return messages, message.get("content", "")
+            return messages, message.get("content", ""), False
 
         # The model can ask for more than one tool in a single turn
         # (e.g. look up the plan AND recommend a genre). Run each one and
         # feed every result back before asking the model to continue.
+        needs_identification = False
         for tool_call in tool_calls:
-            tool_message = execute_tool_call(tool_call, active_user_id)
+            tool_message, tool_needs_identification = execute_tool_call(tool_call, active_user_id)
             messages.append(tool_message)
             request_messages.append(tool_message)
+            needs_identification = needs_identification or tool_needs_identification
 
-    return messages, "Sorry, I'm having trouble completing that request right now. Please contact customer care."
+        if needs_identification:
+            # We already know exactly what to say here. Asking the model
+            # for a final reply on top of this would risk it phrasing the
+            # request differently each time — the same inconsistency
+            # problem the off-topic refusal rule had before it was made
+            # explicit. Answering directly keeps this reliable.
+            messages.append({"role": "assistant", "content": IDENTIFICATION_NEEDED_MESSAGE})
+            return messages, IDENTIFICATION_NEEDED_MESSAGE, True
+
+    return messages, "Sorry, I'm having trouble completing that request right now. Please contact customer care.", False

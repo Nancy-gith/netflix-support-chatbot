@@ -29,17 +29,27 @@ real actions, not just talk.**
 
 There's no real login system. Instead, there's a list of about 40 made-up
 sample customers (names like "Priya Nair" or "Rohan Mehta"), each with a
-fake subscription plan, billing date, and payment method. You pick one from
-a dropdown in the sidebar to say "I'm chatting as this person," and the
-chatbot treats you as that customer for the rest of the conversation. You
-can switch to a different person at any time.
+fake subscription plan, billing date, and payment method.
 
-With a customer selected, you can:
+You don't have to pick one to start chatting. General questions — how
+plans work, how to cancel, what payment methods are accepted, the refund
+policy, a recommendation based on a genre you like — are answered right
+away, for anyone. Only when you ask something tied to *your own* account
+(what plan am I on, switch my plan) does the chatbot ask you to pick your
+name from a sidebar dropdown, so it knows who it's actually helping. Once
+picked, it remembers that choice for the rest of the conversation — you
+won't be asked again — and you can switch to a different person at any
+time.
+
+So, without picking anyone, you can:
+- Ask general questions about plans, cancelling, payment methods, and refunds
+- Ask for a show or movie recommendation based on a genre you like
+
+And once you've picked who you are, you can also:
 - Ask what plan you're on
 - Ask to change your plan (e.g. "switch me to Premium")
 - Ask billing questions that need math (e.g. "what would Premium plus an
   extra member cost?")
-- Ask for a show or movie recommendation based on a genre you like
 
 ## What's fake, and what's real?
 

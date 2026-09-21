@@ -67,12 +67,23 @@ From there, the project was extended in this order:
     just a quiet change in the sidebar.
 15. **Fixed the dropdown silently pre-selecting a customer.** Added a
     placeholder option so no one is "logged in" until a name is actually
-    chosen, and gated the rest of the page behind that choice with
-    `st.stop()`.
+    chosen, and (at the time) gated the rest of the page behind that
+    choice with `st.stop()`. That hard gate was later replaced — see
+    item 17 below — but the placeholder-instead-of-a-silent-default fix
+    still stands.
 16. **Hardened the system prompt against off-topic requests.** The model
     would sometimes comply with requests like "write a poem" after
     initially refusing similar ones — see
     [Section 4](#4-why-these-design-decisions) for what changed and why.
+17. **Made identification optional until it's actually needed.** The
+    `st.stop()` gate from item 15 required picking a customer before any
+    chat was possible at all — even for questions that don't need one.
+    Replaced it with a flow where general questions (policies, pricing,
+    genre recommendations) work immediately with no one identified, and
+    only account-specific requests (plan lookup, plan change) trigger a
+    prompt to pick a name — see
+    [Section 3.6](#36-identification-general-questions-vs-account-specific-ones)
+    for the mechanism.
 
 ---
 
@@ -339,6 +350,84 @@ if not st.session_state.active_user_id:
 selected, no greeting is added, no history renders, and there's no chat
 box to type into at all. The chat genuinely doesn't start until a
 customer is chosen.
+
+*(Note: the placeholder fix above still stands, but the hard `st.stop()`
+gate described here was later removed — see the next section. Requiring
+a customer for every message turned out to be the wrong bar: most
+questions don't need one at all.)*
+
+### 3.6 Identification: general questions vs. account-specific ones
+
+The `st.stop()` gate from 3.5 meant nobody could chat at all — not even
+to ask "how do I cancel?" — without first picking a name. That's a worse
+experience than a real support widget, which lets you ask general
+questions immediately and only asks who you are once it actually needs
+to know. The identification flow was reworked around that idea.
+
+**What changed, at each layer:**
+
+- **`tools.py`** — unchanged. `get_user_plan` and `update_plan` were
+  already the only two tools scoped to a specific customer
+  (`USER_SCOPED_TOOLS`); nothing about *which* tools need identity
+  changed, only *how* the "not identified yet" case is handled upstream.
+
+- **`chatbot.py`** — `execute_tool_call()` now checks, before calling the
+  underlying function at all, whether the tool is user-scoped **and**
+  `active_user_id is None`. If so, it doesn't call the function — there's
+  nothing to look up — and returns a `needs_identification=True` flag
+  alongside the tool result. `get_assistant_reply()` checks that flag
+  after running any tool calls in a turn; if it's set, it skips asking
+  the model for a final reply and returns a fixed constant,
+  `IDENTIFICATION_NEEDED_MESSAGE`, directly:
+
+  ```python
+  IDENTIFICATION_NEEDED_MESSAGE = (
+      "To look that up, I'll need to know who you are — please select your name below."
+  )
+  ```
+
+  This mirrors the fix applied to off-topic refusals earlier in the
+  project: leaving the exact wording to the model, turn after turn, risks
+  it drifting or phrasing things inconsistently. Since the app already
+  knows with certainty that identification is needed the moment
+  `active_user_id is None` and a scoped tool was requested, there's no
+  reason to spend a second API call asking the model to say so in its own
+  words — a fixed string is both more reliable and cheaper.
+
+  The system prompt was updated to match: it now tells the model that
+  general questions (policies, pricing, genre recommendations) don't need
+  an identified customer and should be answered directly, but that for
+  the two account-specific tools, it should **still call the tool** even
+  without knowing who's asking, rather than asking the customer to
+  identify themselves in its own words — the app handles that instead.
+
+- **`app.py`** — the `st.stop()` gate is gone. The page always renders:
+  chat history, input box, everything. `active_user_id` starts as `None`
+  and stays that way until a name is picked; general questions work the
+  entire time. Two new pieces of session state track the rest:
+  - `needs_identification` — set to `True` the moment
+    `get_assistant_reply()` returns that flag, which flips the sidebar's
+    caption into a `st.warning(...)` telling the customer to pick their
+    name. A `st.rerun()` right after that turn makes the warning appear
+    immediately, instead of waiting for the next interaction.
+  - The name dropdown itself is **always rendered** in the sidebar (not
+    conditionally shown/hidden). That was a deliberate choice over
+    literally hiding it until needed: the dropdown has to stay visible
+    after identification anyway, since switching to a different customer
+    mid-session is still supported ([Section 3.5](#35-how-the-active-customer-is-selected-and-used)),
+    so keeping one always-mounted widget and only changing its
+    surrounding caption/warning is simpler than mounting and unmounting
+    it, and avoids any edge cases around a widget's state resetting when
+    it's removed and re-added to the page.
+
+**Why gate on `active_user_id is None` at the tool-execution layer
+instead of in the model's own judgment?** Because "does this need to know
+who's asking" is a fact about which *tool* is being called, not something
+that should depend on the model correctly reasoning about it turn after
+turn. Encoding it as a lookup against `USER_SCOPED_TOOLS` — the same set
+already used for auto-injecting the account ID — means the identification
+gate can never drift out of sync with which tools are actually
+account-specific.
 
 ---
 

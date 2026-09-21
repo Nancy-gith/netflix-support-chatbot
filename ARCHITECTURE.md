@@ -5,40 +5,52 @@ order, from opening the app to getting an answer.
 
 ## The journey of one message, step by step
 
-1. **You open the app.** You see a sidebar with a dropdown of sample
-   customer names. No one is selected yet — the chat area just asks you
-   to pick a customer first. There's no chat box to type into until you do.
+1. **You open the app.** You can start typing immediately — no sign-in,
+   no picking a name first. There's a customer dropdown in the sidebar,
+   but nothing requires you to touch it yet.
 
-2. **You pick a name from the dropdown.** This tells the app "I'm
-   chatting as this person." The chat immediately says "Hi \<name\>!" and
-   the chat box appears. If you pick a different name later, the chat
-   window will greet that new person too — you can switch at any point,
-   mid-conversation, without losing what was said before.
+2. **You type a general question** and hit send, e.g. "How do I cancel?"
+   or "What payment methods do you accept?" These don't need to know who
+   you are, so they're answered directly — no name needed at all.
 
-3. **You type a message** and hit send, e.g. "What plan am I on?"
-
-4. **The app sends the whole conversation so far to the AI model** —
-   not just your latest message, but everything said up to this point,
-   plus a short note reminding the model which customer it's currently
-   talking to. This is what lets the chatbot remember earlier parts of the
+3. **The app sends the whole conversation so far to the AI model** —
+   not just your latest message, but everything said up to this point.
+   This is what lets the chatbot remember earlier parts of the
    conversation (see "How the model remembers things" below).
 
-5. **The model decides what to do.** It reads your message and either:
-   - Answers directly in plain text, or
+4. **The model decides what to do.** It reads your message and either:
+   - Answers directly in plain text (this covers most general questions), or
    - Decides it needs to use one of its tools first (see below)
 
-6. **If it needs a tool**, the app runs that tool in the background —
-   for example, looking up your plan in the sample database — and sends
-   the result back to the model. The model then uses that result to write
-   its actual answer. This can happen more than once in a row if the
-   model needs several tools to fully answer you (e.g. looking up your
-   plan *and* recommending a genre in the same reply).
+5. **If the question is personal** — "what plan am I on," "switch my
+   plan," anything tied to *your* specific account — the model reaches
+   for a tool that needs to know who you are. Two things can happen:
+   - **If nobody's identified yet**, the app doesn't guess or make
+     something up. It replies: "To look that up, I'll need to know who
+     you are — please select your name below," and the sidebar's name
+     picker becomes impossible to miss (see "Identifying yourself" below).
+   - **If you're already identified** (see next step), it just answers,
+     using your account automatically.
 
-7. **You see the final answer** appear in the chat window.
+6. **You pick your name from the sidebar dropdown**, once asked. This
+   tells the app "I'm chatting as this person" for the rest of the
+   session. The chat immediately says "Hi \<name\>!" — and from this point
+   on, the app won't ask again. Ask the same or a different personal
+   question later, and it just answers, using your identified account.
 
-8. **The next time you type something**, the whole process repeats — and
+7. **For any tool the model uses** (personal or general, like a
+   recommendation), the app runs it in the background and sends the
+   result back to the model, which uses that result to write its actual
+   answer. This can happen more than once in a row if the model needs
+   several tools to fully answer you (e.g. looking up your plan *and*
+   recommending a genre in the same reply).
+
+8. **You see the final answer** appear in the chat window.
+
+9. **The next time you type something**, the whole process repeats — and
    because the full conversation is sent again each time, the model still
-   remembers everything from before.
+   remembers everything from before, including whether you've already
+   been identified.
 
 ## How the model remembers things
 
@@ -59,6 +71,28 @@ tool would help. This means:
   right tool by itself
 - If it needs more than one tool, it can call several in a row before
   replying
+
+## Identifying yourself — only when it's actually needed
+
+Most of what the chatbot can help with doesn't need to know who you are:
+how plans work, how to cancel, what payment methods are accepted, the
+refund policy, or a recommendation based on a genre you mention. All of
+that works from the very first message, with no name picked.
+
+Only two things are tied to a specific person: looking up *your* current
+plan, and changing *your* plan. The moment you ask one of those and
+nobody's identified yet, the sidebar's caption turns into a clear
+prompt ("please select your name below") and the chat gives you the same
+message directly. Once you pick a name, that choice is remembered for the
+rest of the session — every later personal question just works, without
+asking again — and you can still pick a *different* name at any time if
+you want the chatbot to switch who it's helping.
+
+One deliberate detail: the "please select your name" message is always
+worded exactly the same way, rather than left up to the model to phrase
+however it likes in the moment. That's on purpose — it keeps the request
+predictable and prevents the wording from drifting to something vaguer or
+less helpful on a rephrased or repeated question.
 
 ## Staying on topic
 
@@ -93,10 +127,11 @@ conversation.
 | **Plan changer** (`update_plan`) | Changes the currently-selected customer's plan in the sample database | Ask to switch/upgrade/downgrade your plan, and confirm you want to |
 | **Recommender** (`recommend_genre`) | Suggests shows/movies from a small sample list, based on a genre you mention | Mention a genre you like, or ask for a recommendation |
 
-Notice that the plan lookup and plan changer tools never ask you for an
-account number — they automatically use whichever customer is currently
-selected in the sidebar. You never have to tell the chatbot who you are in
-the chat itself.
+Notice that the plan lookup and plan changer tools never ask you to type
+an account number into the chat — they either use whoever's identified in
+the sidebar automatically, or (if nobody is yet) trigger the "please
+select your name" prompt described above. You never type an ID yourself
+either way.
 
 ## Deployment: where the app lives, and where the secret key lives
 
