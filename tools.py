@@ -155,11 +155,18 @@ def update_plan(user_id, new_plan):
 
 
 def recommend_genre(preference=None, user_id=None):
-    """Suggests titles from the fake catalog. If the customer stated a
-    genre this turn, `preference` is used as-is — that always wins, even
-    if it differs from what's on file. Otherwise, if a customer is
-    identified and has a saved favorite_genre, that's used automatically.
-    Only if neither is available does this ask for one."""
+    """Suggests titles. If the customer stated something this turn,
+    `preference` is used as-is — that always wins, even if it differs
+    from what's on file. Otherwise, if a customer is identified and has a
+    saved favorite_genre, that's used automatically. Only if neither is
+    available does this ask for one.
+
+    `preference` can be a broad genre ("comedy") or something more
+    specific/thematic ("a movie about a mathematician"). Only the broad
+    genres are covered by the fake catalog — for anything more specific
+    that doesn't match one, this hands back a message telling the model
+    to answer from its own general knowledge instead of forcing a
+    mismatched catalog pick (see the `in_fake_catalog: False` branch)."""
     used_saved_preference = False
 
     if not preference and user_id and user_id in USERS_DB:
@@ -181,12 +188,26 @@ def recommend_genre(preference=None, user_id=None):
                 result["note"] = "Based on this customer's saved favorite genre."
             return result
 
-    # No keyword matched anything in the catalog: fall back to a
-    # generally popular pick instead of returning an empty result.
+    # Nothing in the catalog covers this. The old behavior here defaulted
+    # to a generic drama pick, which just produced a wrong-looking answer
+    # for anything more specific than a genre ("a movie about hackers"
+    # would get Crown/Ozark/Queen's Gambit — unrelated). The catalog only
+    # has 8 broad genres, so instead of forcing a mismatched pick, hand it
+    # back to the model to answer from its own general knowledge.
+    catalog_genres = ", ".join(GENRE_CATALOG.keys())
     return {
         "matched_genre": None,
-        "recommendations": GENRE_CATALOG["drama"],
-        "note": f"No exact genre match for '{preference}', showing popular picks instead.",
+        "in_fake_catalog": False,
+        "message": (
+            f"'{preference}' isn't one of this service's sample catalog genres "
+            f"({catalog_genres}) — it's more specific or thematic than that. "
+            "Answer it yourself using your own general knowledge instead: "
+            "suggest a couple of real, well-known titles that actually fit what "
+            "was asked, not anything from the fake catalog. Since these are your "
+            "own suggestions rather than a catalog lookup, add one brief, natural "
+            "line noting that streaming availability can change over time — "
+            "phrased conversationally, not as a formal disclaimer."
+        ),
     }
 
 
@@ -255,13 +276,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "recommend_genre",
-            "description": "Suggests shows/movies for the customer. If they stated a genre this turn, pass it as `preference` — call the tool right away, no identity needed. If they didn't state a genre but explicitly asked for something based on THEIR OWN profile, taste, or watch history (e.g. 'based on my profile', 'what I usually watch'), set `personalized` to true instead of guessing a genre — if nobody's identified yet, this correctly asks them to identify themselves rather than answering generically. For a plain 'recommend me something' with no stated genre and no personalization language, call with neither argument — it uses a saved favorite genre if the customer is identified, or asks what they enjoy if not.",
+            "description": "Suggests shows/movies for the customer. Pass whatever they stated as `preference` — a broad genre ('comedy') or something more specific/thematic ('a movie about a mathematician', 'something about hackers') — and call the tool right away, no identity needed either way. The tool checks it against a small sample catalog of broad genres; if the request is too specific for that catalog, the tool tells you so and you should answer instead from your own general knowledge (see the tool's response). If they didn't state anything but explicitly asked for something based on THEIR OWN profile, taste, or watch history (e.g. 'based on my profile', 'what I usually watch'), set `personalized` to true instead of guessing — if nobody's identified yet, this correctly asks them to identify themselves rather than answering generically. For a plain 'recommend me something' with no stated preference and no personalization language, call with neither argument — it uses a saved favorite genre if the customer is identified, or asks what they enjoy if not.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "preference": {
                         "type": "string",
-                        "description": "The genre the customer explicitly mentioned in this message. Omit entirely if they didn't state one.",
+                        "description": "Whatever the customer said they want, in this message — a genre or something more specific. Omit entirely if they didn't state one.",
                     },
                     "personalized": {
                         "type": "boolean",

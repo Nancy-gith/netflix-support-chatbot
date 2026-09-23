@@ -128,7 +128,7 @@ conversation.
 | **Calculator** (`add`) | Adds two numbers together | Ask something involving billing math, like "what would two plans together cost?" |
 | **Plan lookup** (`get_user_plan`) | Looks up which plan the currently-selected customer is on | Ask "what plan am I on?" or anything that needs to know your current plan first |
 | **Plan changer** (`update_plan`) | Changes the currently-selected customer's plan in the sample database | Ask to switch/upgrade/downgrade your plan, and confirm you want to |
-| **Recommender** (`recommend_genre`) | Suggests shows/movies from a small sample list | Ask for a recommendation, with or without mentioning a genre |
+| **Recommender** (`recommend_genre`) | Suggests shows/movies — from the small sample list for a broad genre, or from the model's own general knowledge for anything more specific | Ask for a recommendation, with or without mentioning a genre or a more specific theme |
 
 Notice that the plan lookup and plan changer tools never ask you to type
 an account number into the chat — they either use whoever's identified in
@@ -156,6 +156,20 @@ kind of request, if nobody's identified yet, the chatbot doesn't guess or
 answer generically — it triggers the exact same "please identify
 yourself" prompt used for plan lookups. Once you're identified, the same
 request just works, using your saved favorite genre.
+
+**A third wrinkle: asking for something more specific than a genre gets
+a real answer, not a mismatched catalog pick.** The sample catalog only
+covers 8 broad genres (action, comedy, drama, and so on). If you ask for
+something more specific or thematic — "a movie about a mathematician,"
+"something about hackers" — that's not a genre the catalog can match. In
+that case, the chatbot stops using the sample catalog entirely and
+answers from its own general knowledge instead, suggesting real,
+well-known titles that actually fit what you asked. It also adds a
+quick, casual note that streaming availability can shift over time,
+since — unlike a sample-catalog pick — these aren't titles this project
+claims are actually on the service. Asking for a broad genre still uses
+the fast, sample-catalog path exactly as before; this only kicks in when
+the catalog genuinely has nothing that fits.
 
 ## Deployment: where the app lives, and where the secret key lives
 

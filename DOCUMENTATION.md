@@ -122,6 +122,16 @@ From there, the project was extended in this order:
     fallback message instead — see
     [Section 3.8](#38-handling-a-failed-groq-api-call) for what's caught
     and what deliberately isn't.
+22. **Stopped `recommend_genre` from forcing mismatched catalog picks
+    on specific requests.** The 8-genre fake catalog was being force-fit
+    onto anything, including thematic requests like "a movie about a
+    mathematician" — the old fallback defaulted to generic drama picks
+    for anything that didn't match a genre keyword, which just produced
+    wrong-looking answers. The tool now tells the model when a request is
+    outside the catalog, and the model answers from its own general
+    knowledge instead, with real titles and a brief note that streaming
+    availability can shift. See
+    [Section 3.9](#39-recommend_genre-catalog-vs-general-knowledge).
 
 ---
 
@@ -610,6 +620,67 @@ response shape — all four caught correctly, real conversation flow
 unaffected by the change) and this project's own repeated real 429s
 during earlier testing sessions, which the fix now catches instead of
 crashing.
+
+### 3.9 recommend_genre: catalog vs. general knowledge
+
+`GENRE_CATALOG` only has 8 broad genres. Before this fix, `recommend_genre`
+tried to serve *every* recommendation request from that catalog: it did a
+substring match against the 8 genre keys, and if nothing matched, it
+silently defaulted to `GENRE_CATALOG["drama"]` with a "no exact match"
+note. That meant a specific or thematic request — "a movie about a
+mathematician," "something about hackers" — either got force-matched
+against an unrelated genre keyword by accident, or fell through to the
+drama default, which has nothing to do with what was actually asked. Both
+outcomes look like the chatbot inventing or misunderstanding the request.
+
+The fix changes only the *unmatched* branch — the genre-matching loop
+itself, and everything about broad genre requests, is untouched, so that
+path stays exactly as fast and deterministic as before:
+
+```python
+for genre, titles in GENRE_CATALOG.items():
+    if genre in preference_lower or preference_lower in genre:
+        return {"matched_genre": genre, "recommendations": titles}  # unchanged
+
+# unmatched: used to default to GENRE_CATALOG["drama"]. Now:
+return {
+    "matched_genre": None,
+    "in_fake_catalog": False,
+    "message": (
+        f"'{preference}' isn't one of this service's sample catalog genres "
+        f"({catalog_genres}) — it's more specific or thematic than that. "
+        "Answer it yourself using your own general knowledge instead: ..."
+    ),
+}
+```
+
+Two things about this design are worth calling out:
+
+**The instruction lives in the tool's response, not just the system
+prompt.** The returned `message` is read by the model right when it
+matters, already knows exactly which `preference` triggered it, and lists
+the actual catalog genres dynamically (`", ".join(GENRE_CATALOG.keys())`)
+rather than a hardcoded list that could drift out of sync if the catalog
+ever changes. The system prompt's "Recommendations" paragraph also
+mentions this behavior, but as reinforcement — the authoritative
+instruction is generated fresh by the tool on every call.
+
+**The streaming-availability line is deliberately NOT hardened into a
+fixed string**, unlike `IDENTIFICATION_NEEDED_MESSAGE` or
+`API_ERROR_MESSAGE`. Those two needed exact, repeatable wording because
+getting them wrong has a real correctness cost (the off-topic-refusal
+inconsistency this project ran into earlier is exactly what a soft,
+one-off instruction risks). A casual note that availability can change
+has no such failure mode — asking for it to be phrased naturally, varying
+turn to turn, was an explicit design choice, so the tool's `message` asks
+for "one brief, natural line," not a specific sentence to repeat verbatim.
+
+Verified live: "a movie about a mathematician" and "something about
+hackers" (the exact cases that prompted this fix) both produced real,
+well-known titles (*A Beautiful Mind*, *Hidden Figures*, *Mr. Robot*,
+*Hackers* (1995)) with a natural availability note, and a plain "thriller"
+request still matched the catalog correctly (`Mindhunter`, `You`, `Fool
+Me Once`) with no change in behavior.
 
 ---
 

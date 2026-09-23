@@ -45,7 +45,11 @@ different person at any time.
 
 So, without picking anyone, you can:
 - Ask general questions about plans, cancelling, payment methods, and refunds
-- Ask for a show or movie recommendation, stating a genre you like
+- Ask for a show or movie recommendation — a broad genre gets picks from
+  this project's small made-up catalog; something more specific ("a
+  movie about a mathematician") gets real, well-known suggestions from
+  the chatbot's own general knowledge instead, since the fake catalog is
+  too small to cover that
 
 If you *have* picked who you are, you can also ask for a recommendation
 without stating a genre (uses your saved favorite genre automatically —
@@ -68,6 +72,8 @@ And once you've picked who you are, you can also:
 |---|---|
 | The customers, their plans, billing info | **Fake.** Made-up data, generated for this project. |
 | Netflix's actual plans/shows/prices | **Not used.** Pricing in this project is a plausible made-up example, not real Netflix pricing. |
+| Recommendations for a broad genre ("comedy") | **Fake.** Pulled from this project's own tiny made-up catalog of titles. |
+| Recommendations for something more specific ("a movie about hackers") | **Real.** The made-up catalog is too small to cover that, so the chatbot suggests actual, real, well-known titles from its own knowledge instead — with a note that streaming availability can change, since this project isn't claiming they're on the (fake) service. |
 | The chatbot itself (the AI model) | **Real.** It's a real AI model (via the Groq API) making real decisions about what to say and which tool to use. |
 | Any connection to the real Netflix company | **None.** This project isn't affiliated with, endorsed by, or built using any real Netflix data. It's a "Netflix-style" demo, not the real thing. |
 
