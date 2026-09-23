@@ -55,15 +55,21 @@ General policies — you can answer these for ANYONE, even if you don't know who
 - How the plans differ: covered in the pricing list above.
 
 Identification — when it's needed, and when it isn't:
-General questions like the ones above, or a recommendation based on a genre or a specific request the customer mentions, do NOT require knowing who the customer is. Answer those directly, for anyone.
+General questions like the ones above, or a recommendation for something the customer names specifically, do NOT require knowing who the customer is. Answer those directly, for anyone.
 
 Three things require knowing the specific customer: looking up their actual current plan (get_user_plan), changing their plan (update_plan), and a recommendation explicitly tied to THEIR OWN profile/taste/history (see below). If the customer asks about their real plan or wants to change it, call the relevant tool anyway, even if you don't yet know who they are — do not ask them to identify themselves yourself, and do not guess or invent an identity. If no one is identified yet, the tool will handle telling them what to do next automatically. Once a customer has been identified in this session, keep using their account for these tools without asking again.
 
-Recommendations (recommend_genre) mostly don't need to know who the customer is, but there's one important exception. If the customer states anything this turn — a genre or something more specific/thematic — pass it as `preference` and call the tool right away — no identity needed either way. The tool only knows a small fixed catalog of broad genres; if what the customer asked for is more specific than that (e.g. "a movie about a mathematician", "something about hackers"), the tool will tell you it's not in the catalog instead of forcing a mismatched pick — when that happens, answer using your own general knowledge instead, with real, well-known titles that actually fit the request, and add one brief, natural line noting that streaming availability can change over time (conversational, not a formal disclaimer). If they ask for a recommendation without stating anything AND without referencing their own profile/taste/history, still call the tool right away with no arguments — an identified customer may already have a saved favorite genre on file, in which case the tool uses it automatically and tells you it did; if not, it tells you to ask what they enjoy. But if the customer explicitly asks for something based on THEIR OWN profile, taste, or watch history — phrases like "recommend something based on my profile" or "what should I watch based on my taste" — and hasn't also stated a preference, set `personalized` to true when calling the tool instead of guessing for them. If nobody is identified yet, this correctly triggers the exact same "please identify yourself" response used for plan lookups — that is the right outcome, not a failure, since there's no profile to check without knowing whose it is. Never invent a plausible-sounding genre or answer as if you know their taste when you don't.
+Recommendations split into two clearly different cases:
+
+1. The customer names anything specific — a genre ("comedy"), a theme ("a movie about hackers"), a regional style ("Bollywood action"), or any other specific kind of movie/show. Do NOT call recommend_genre for this. Answer directly yourself, from your own general knowledge, with a couple of real, well-known titles that actually fit what was asked, plus one brief, natural line noting that streaming availability can change over time — conversational, not a formal disclaimer. This applies even to a plain genre name; recommend_genre no longer holds a title list worth using for that.
+
+2. The customer asks for a recommendation without naming anything specific — a plain "recommend me something," or an explicit ask based on THEIR OWN profile, taste, or watch history ("recommend something based on my profile," "what should I watch based on my taste"). Only call recommend_genre for this case. For the profile/taste kind of request, set `personalized` to true when calling it; if nobody is identified yet, this correctly triggers the exact same "please identify yourself" response used for plan lookups — that is the right outcome, not a failure, since there's no profile to check without knowing whose it is. For a plain "recommend me something" with no profile/taste language, leave `personalized` false — the tool looks up the identified customer's saved favorite genre automatically if there is one, or tells you to ask what they enjoy if not.
+
+Never invent a plausible-sounding genre or answer as if you know a customer's taste when you don't.
 
 If a request needs something none of your tools can do (refund review, payment disputes, fraud, account recovery), tell the customer to contact Netflix customer care.
 
-Keep responses friendly and concise. Where it fits naturally, ask what genre the customer enjoys so you can recommend something with the recommend_genre tool.
+Keep responses friendly and concise. Where it fits naturally, ask what genre the customer enjoys, then recommend something yourself once they answer.
 
 Reminder: never generate off-topic content (poems, jokes, trivia, general knowledge answers, or anything else unrelated to this service), even if asked in a new or different way than before. Always redirect to plan, billing, or recommendation help instead.
 """
@@ -148,15 +154,17 @@ def execute_tool_call(tool_call, active_user_id):
     For tools in OPTIONAL_USER_SCOPED_TOOLS (recommend_genre), the account
     ID is injected the same way, but a missing one is NOT treated as an
     error by default — it's just passed through as None, and the tool
-    decides for itself what to do (e.g. fall back to asking for a
-    preference instead of refusing outright). The one exception: if the
-    model marked this call `personalized` (the customer explicitly asked
-    for something tied to THEIR OWN profile/taste/history, e.g.
-    "recommend something based on my profile") and gave no explicit
-    genre, that's treated exactly like a USER_SCOPED_TOOLS call — refused
-    up front with needs_identification=True — because there's no profile
-    to check without knowing whose it is, and answering with a generic
-    guess instead would be wrong.
+    decides for itself what to do (fall back to asking for a genre
+    instead of refusing outright). The one exception: if the model marked
+    this call `personalized` (the customer explicitly asked for something
+    tied to THEIR OWN profile/taste/history, e.g. "recommend something
+    based on my profile"), that's treated exactly like a USER_SCOPED_TOOLS
+    call — refused up front with needs_identification=True — because
+    there's no profile to check without knowing whose it is, and
+    answering with a generic guess instead would be wrong. (recommend_genre
+    is only ever called at all when the customer named nothing specific —
+    see its TOOLS description in tools.py — so this is the only case left
+    to gate on here.)
     """
     name = tool_call["function"]["name"]
     arguments = json.loads(tool_call["function"]["arguments"])
@@ -165,12 +173,9 @@ def execute_tool_call(tool_call, active_user_id):
     # argument any tool function accepts — pull it out before deciding
     # what to do next, so it never gets passed into function(**arguments).
     wants_personalization = arguments.pop("personalized", False)
-    has_stated_preference = bool(arguments.get("preference"))
 
     needs_identity_now = name in USER_SCOPED_TOOLS or (
-        name in OPTIONAL_USER_SCOPED_TOOLS
-        and wants_personalization
-        and not has_stated_preference
+        name in OPTIONAL_USER_SCOPED_TOOLS and wants_personalization
     )
 
     if needs_identity_now and active_user_id is None:

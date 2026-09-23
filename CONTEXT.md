@@ -3,7 +3,7 @@
 ## The short version
 
 This is a customer support chatbot styled after Netflix's support chat. You
-type a question ("what plan am I on?", "recommend me a comedy") and it
+type a question ("what plan am I on?", "switch me to Premium") and it
 answers you — looking things up or making changes for you where needed,
 instead of just guessing.
 
@@ -34,31 +34,32 @@ them) a saved favorite genre.
 
 You don't have to pick one to start chatting. General questions — how
 plans work, how to cancel, what payment methods are accepted, the refund
-policy, a recommendation based on a genre you like — are answered right
-away, for anyone. Only when you ask something tied to *your own* account
-(what plan am I on, switch my plan, or a recommendation you explicitly
-tie to "my profile" or "my taste" rather than a genre) does the chatbot
-ask you to pick your name from a sidebar dropdown, so it knows who it's
-actually helping. Once picked, it remembers that choice for the rest of
-the conversation — you won't be asked again — and you can switch to a
-different person at any time.
+policy — are answered right away, for anyone. So is a recommendation
+where you say what you want, no matter how specific ("comedy," "a movie
+about a mathematician," "Bollywood action") — the chatbot just answers
+from its own knowledge, no account needed. Only when you ask something
+tied to *your own* account (what plan am I on, switch my plan, or a
+recommendation you explicitly tie to "my profile" or "my taste" instead
+of naming something) does the chatbot ask you to pick your name from a
+sidebar dropdown, so it knows who it's actually helping. Once picked, it
+remembers that choice for the rest of the conversation — you won't be
+asked again — and you can switch to a different person at any time.
 
 So, without picking anyone, you can:
 - Ask general questions about plans, cancelling, payment methods, and refunds
-- Ask for a show or movie recommendation — a broad genre gets picks from
-  this project's small made-up catalog; something more specific ("a
-  movie about a mathematician") gets real, well-known suggestions from
-  the chatbot's own general knowledge instead, since the fake catalog is
-  too small to cover that
+- Ask for a show or movie recommendation, saying what you want — a
+  genre, a theme, a regional style, anything specific
 
 If you *have* picked who you are, you can also ask for a recommendation
-without stating a genre (uses your saved favorite genre automatically —
-no need to repeat it every time) or explicitly ask for something "based
-on my profile" or "based on my taste." Asking that same way *without*
-picking anyone first gets you the identification prompt instead of a
-generic answer — the chatbot won't pretend to know your taste when it
-doesn't. (A handful of sample customers have no saved genre, on purpose,
-so the chatbot's fallback — just asking — has real data to show too.)
+without saying what you want at all ("recommend me something" — uses
+your saved favorite genre automatically, from this project's small
+made-up catalog, if you have one on file) or explicitly ask for
+something "based on my profile" or "based on my taste." Asking that
+second kind of question *without* picking anyone first gets you the
+identification prompt instead of a generic answer — the chatbot won't
+pretend to know your taste when it doesn't. (A handful of sample
+customers have no saved genre, on purpose, so the chatbot's fallback —
+just asking — has real data to show too.)
 
 And once you've picked who you are, you can also:
 - Ask what plan you're on
@@ -72,8 +73,8 @@ And once you've picked who you are, you can also:
 |---|---|
 | The customers, their plans, billing info | **Fake.** Made-up data, generated for this project. |
 | Netflix's actual plans/shows/prices | **Not used.** Pricing in this project is a plausible made-up example, not real Netflix pricing. |
-| Recommendations for a broad genre ("comedy") | **Fake.** Pulled from this project's own tiny made-up catalog of titles. |
-| Recommendations for something more specific ("a movie about hackers") | **Real.** The made-up catalog is too small to cover that, so the chatbot suggests actual, real, well-known titles from its own knowledge instead — with a note that streaming availability can change, since this project isn't claiming they're on the (fake) service. |
+| Recommendations where you say what you want (a genre, a theme, anything specific) | **Real.** The chatbot suggests actual, real, well-known titles from its own knowledge — with a note that streaming availability can change, since this project isn't claiming they're on the (fake) service. |
+| Recommendations where you *don't* say what you want ("recommend me something," or "based on my profile" once identified) | **Fake.** Pulled from this project's own tiny made-up catalog of titles, using a saved favorite genre from the fake customer database. |
 | The chatbot itself (the AI model) | **Real.** It's a real AI model (via the Groq API) making real decisions about what to say and which tool to use. |
 | Any connection to the real Netflix company | **None.** This project isn't affiliated with, endorsed by, or built using any real Netflix data. It's a "Netflix-style" demo, not the real thing. |
 

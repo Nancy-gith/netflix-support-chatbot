@@ -132,6 +132,16 @@ From there, the project was extended in this order:
     knowledge instead, with real titles and a brief note that streaming
     availability can shift. See
     [Section 3.9](#39-recommend_genre-catalog-vs-general-knowledge).
+23. **Simplified `recommend_genre` to a clean two-way split.** Item 22's
+    fix still ran every recommendation request through the tool and its
+    genre-matching logic, including plain genre names. Simplified further:
+    the tool is now called *only* when the customer names nothing specific
+    at all (a plain "recommend me something," or an explicit "based on my
+    profile/taste" ask) — any named genre, theme, or regional style skips
+    the tool entirely and goes straight to the model's own knowledge. This
+    removed the substring-matching loop and the `preference` argument
+    from `recommend_genre` altogether; see the rewritten
+    [Section 3.9](#39-recommend_genre-catalog-vs-general-knowledge).
 
 ---
 
@@ -327,8 +337,9 @@ of that:
 
 **Why the tools themselves don't take a `user_id` the model fills in.**
 `get_user_plan` and `update_plan`'s schemas in `tools.TOOLS` have no
-`user_id` property at all — compare that to `recommend_genre`, which does
-ask the model for a `preference` argument. That's deliberate: `user_id`
+`user_id` property at all — compare that to `add`, which does ask the
+model for its `a` and `b` arguments, since those genuinely come from the
+conversation. That's deliberate: `user_id`
 isn't something the *conversation* should determine, it's session state
 the UI already knows with certainty. Letting the model supply it would
 reopen the door to the model asking for it, guessing it, or (worse) using
@@ -477,7 +488,7 @@ already used for auto-injecting the account ID — means the identification
 gate can never drift out of sync with which tools are actually
 account-specific.
 
-### 3.7 recommend_genre: falling back to a saved preference
+### 3.7 Why recommend_genre is OPTIONAL_USER_SCOPED, not USER_SCOPED
 
 `recommend_genre` is neither fully open (it does personalize when it
 can) nor fully gated (it never refuses just because nobody's identified),
@@ -496,79 +507,32 @@ if name in USER_SCOPED_TOOLS or name in OPTIONAL_USER_SCOPED_TOOLS:
 `user_id` gets injected for both categories, but only `USER_SCOPED_TOOLS`
 triggers the identification-required short-circuit when it's `None`.
 `recommend_genre` always runs — `active_user_id` might just be `None`
-inside it, and the function itself decides what to do with that:
+inside it, and the function itself decides what to do with that (see
+[Section 3.9](#39-recommend_genre-a-narrow-tool-not-a-general-recommendation-engine)
+for what it actually does now — that's changed since this section was
+first written, but the `OPTIONAL_USER_SCOPED_TOOLS` categorization and
+the code above haven't).
 
-```python
-def recommend_genre(preference=None, user_id=None):
-    used_saved_preference = False
-    if not preference and user_id and user_id in USERS_DB:
-        preference = USERS_DB[user_id].get("favorite_genre")
-        used_saved_preference = preference is not None
+One piece of this tool's design that *hasn't* changed: the `personalized`
+boolean on its schema, set by the model only when the customer's wording
+explicitly references their own profile/taste/history. `execute_tool_call()`
+uses it to decide whether a missing identity should refuse the call
+outright (same as a `USER_SCOPED_TOOLS` call, same fixed
+`IDENTIFICATION_NEEDED_MESSAGE`) or just let the tool fall through to its
+own "ask what they enjoy" response. `personalized` is popped off
+`arguments` before the real function is called, since it's a routing
+signal for this file, not a parameter `recommend_genre()` itself accepts.
+This is the same pattern as 3.6's identification gate, applied to a tool
+that's normally *optional*-scoped: the deciding fact (does answering this
+specific request require knowing who's asking) lives in code, not in the
+model's in-the-moment judgment about what to say.
 
-    if not preference:
-        return {"error": "No genre preference given, and none saved for this customer.", ...}
-    ...
-```
-
-The precedence is deliberate: a genre stated *this turn* always wins over
-whatever's saved (someone whose favorite is comedy can still ask for a
-horror recommendation tonight), a saved `favorite_genre` is used only
-when nothing was stated, and only when both are absent does the tool
-report back that it needs one — which the model then relays as a normal
-follow-up question, in its own words. That last part is intentionally
-*not* hardened into a fixed string the way `IDENTIFICATION_NEEDED_MESSAGE`
-is: asking "what genre do you like?" has no wrong phrasing or scope risk
-the way the off-topic and identification cases did, so there's nothing to
-gain from forcing it to be word-for-word identical every time.
-
-`tools.py` generates `favorite_genre` for each sample user directly from
+`tools.py` generates each sample user's `favorite_genre` directly from
 `GENRE_CATALOG`'s own keys (`GENRE_CYCLE = list(GENRE_CATALOG.keys())`),
 cycling through them the same deterministic way plans and payment methods
 are assigned — except every 6th user gets `None` instead, on purpose, so
-the "nothing saved — ask" branch has real sample data to exercise in
-testing and demos, not just the happy path.
-
-**Closing the "my profile" gap.** The design above still had a hole:
-nothing distinguished "recommend me something" (fine to answer generically
-or just ask a genre) from "recommend something based on my profile" (an
-explicit request to use *this specific customer's* data, which doesn't
-exist to check without knowing who they are). Before this was addressed,
-that second phrasing could get answered as if it were the first — either
-a generic guess or a vague follow-up question, never the identification
-prompt it should have triggered.
-
-The fix adds one more optional boolean to `recommend_genre`'s schema,
-`personalized`, which the model sets to `true` only when the customer's
-wording explicitly references their own profile/taste/history without
-also stating a genre in the same message. `execute_tool_call()` then
-computes:
-
-```python
-wants_personalization = arguments.pop("personalized", False)
-has_stated_preference = bool(arguments.get("preference"))
-
-needs_identity_now = name in USER_SCOPED_TOOLS or (
-    name in OPTIONAL_USER_SCOPED_TOOLS
-    and wants_personalization
-    and not has_stated_preference
-)
-```
-
-When `needs_identity_now` is true and `active_user_id is None`, this call
-is refused exactly the same way a `USER_SCOPED_TOOLS` call would be —
-same `needs_identification=True` flag, same fixed
-`IDENTIFICATION_NEEDED_MESSAGE`. The `and not has_stated_preference`
-clause matters: "recommend a comedy based on my profile" still doesn't
-need identity, because the stated genre already answers the request —
-personalization language alone isn't what triggers the gate, needing
-data that isn't there yet is. `personalized` is popped off `arguments`
-before the real function is called, since it's a routing signal for this
-file, not a parameter `recommend_genre()` itself accepts.
-
-This is the same pattern as 3.6's identification gate, applied to a tool
-that's normally *optional*-scoped: the deciding fact (does answering this
-specific request require knowing who's asking) still lives in code, not
-in the model's in-the-moment judgment about what to say.
+the "nothing saved" path has real sample data to exercise in testing and
+demos, not just the happy path.
 
 ### 3.8 Handling a failed Groq API call
 
@@ -621,66 +585,86 @@ unaffected by the change) and this project's own repeated real 429s
 during earlier testing sessions, which the fix now catches instead of
 crashing.
 
-### 3.9 recommend_genre: catalog vs. general knowledge
+### 3.9 recommend_genre: a narrow tool, not a general recommendation engine
 
-`GENRE_CATALOG` only has 8 broad genres. Before this fix, `recommend_genre`
-tried to serve *every* recommendation request from that catalog: it did a
-substring match against the 8 genre keys, and if nothing matched, it
-silently defaulted to `GENRE_CATALOG["drama"]` with a "no exact match"
-note. That meant a specific or thematic request — "a movie about a
-mathematician," "something about hackers" — either got force-matched
-against an unrelated genre keyword by accident, or fell through to the
-drama default, which has nothing to do with what was actually asked. Both
-outcomes look like the chatbot inventing or misunderstanding the request.
+This went through two iterations before landing on its current, simpler
+shape, and the reasoning behind the simplification is worth keeping —
+it's a good example of a tool's *scope* being a real design decision, not
+just its implementation.
 
-The fix changes only the *unmatched* branch — the genre-matching loop
-itself, and everything about broad genre requests, is untouched, so that
-path stays exactly as fast and deterministic as before:
+**Iteration 1 (original):** `recommend_genre(preference)` tried to serve
+*every* recommendation request from `GENRE_CATALOG` (8 broad genres). It
+did a substring match against the 8 keys, and if nothing matched, it
+silently defaulted to `GENRE_CATALOG["drama"]`. A thematic request like
+"a movie about a mathematician" either got force-matched against an
+unrelated keyword by accident, or fell through to the drama default —
+both look like the chatbot inventing or misunderstanding the request.
+
+**Iteration 2:** kept every request flowing through the tool, but changed
+the *unmatched* branch to hand the model a message saying "this isn't in
+the catalog, answer from your own knowledge instead." This fixed the
+wrong-answer problem, but the tool was still being called (and still
+doing genre-matching work) for requests it was never actually able to
+serve well — including plain genre names, which is what it was
+*supposedly* good at.
+
+**Current design:** the scope question was reframed from "what should
+this tool do with any request" to "when does this tool have anything
+useful to add at all." The answer: only when the customer names *nothing*
+specific. `recommend_genre` lost its `preference` argument entirely — it
+now takes only `user_id` (injected automatically) and looks up one thing:
 
 ```python
-for genre, titles in GENRE_CATALOG.items():
-    if genre in preference_lower or preference_lower in genre:
-        return {"matched_genre": genre, "recommendations": titles}  # unchanged
-
-# unmatched: used to default to GENRE_CATALOG["drama"]. Now:
-return {
-    "matched_genre": None,
-    "in_fake_catalog": False,
-    "message": (
-        f"'{preference}' isn't one of this service's sample catalog genres "
-        f"({catalog_genres}) — it's more specific or thematic than that. "
-        "Answer it yourself using your own general knowledge instead: ..."
-    ),
-}
+def recommend_genre(user_id=None):
+    if user_id and user_id in USERS_DB:
+        favorite_genre = USERS_DB[user_id].get("favorite_genre")
+        if favorite_genre:
+            return {
+                "matched_genre": favorite_genre,
+                "recommendations": GENRE_CATALOG[favorite_genre],
+                "note": "Based on this customer's saved favorite genre.",
+            }
+    return {
+        "error": "No saved genre preference for this customer.",
+        "message": "Ask the customer what genre they enjoy.",
+    }
 ```
 
-Two things about this design are worth calling out:
+No substring matching, no unmatched branch, no `in_fake_catalog` signal —
+the tool doesn't need to know what's specific or not anymore, because it's
+never called for a specific request in the first place. **The routing
+decision moved entirely to the model**, via the `TOOLS` schema description
+and the system prompt's two-case split:
 
-**The instruction lives in the tool's response, not just the system
-prompt.** The returned `message` is read by the model right when it
-matters, already knows exactly which `preference` triggered it, and lists
-the actual catalog genres dynamically (`", ".join(GENRE_CATALOG.keys())`)
-rather than a hardcoded list that could drift out of sync if the catalog
-ever changes. The system prompt's "Recommendations" paragraph also
-mentions this behavior, but as reinforcement — the authoritative
-instruction is generated fresh by the tool on every call.
+1. The customer names *anything* — a genre, a theme, a regional style.
+   Don't call the tool at all; answer directly from the model's own
+   general knowledge, with real titles and a brief natural line about
+   streaming availability shifting.
+2. The customer names *nothing* — a plain "recommend me something," or an
+   explicit "based on my profile/taste." Only this case calls
+   `recommend_genre`. The `personalized` flag (unchanged from before)
+   still decides whether a missing identity should trigger the same
+   "please identify yourself" response used for plan lookups (for the
+   profile/taste phrasing) or just a plain "what genre do you like?"
+   question (for a generic ask) — see `chatbot.execute_tool_call()`.
 
-**The streaming-availability line is deliberately NOT hardened into a
-fixed string**, unlike `IDENTIFICATION_NEEDED_MESSAGE` or
-`API_ERROR_MESSAGE`. Those two needed exact, repeatable wording because
-getting them wrong has a real correctness cost (the off-topic-refusal
-inconsistency this project ran into earlier is exactly what a soft,
-one-off instruction risks). A casual note that availability can change
-has no such failure mode — asking for it to be phrased naturally, varying
-turn to turn, was an explicit design choice, so the tool's `message` asks
-for "one brief, natural line," not a specific sentence to repeat verbatim.
+One practical side effect: a plain genre request like "recommend a
+comedy" now resolves in a **single** API call instead of two (no tool
+round-trip at all), since the model answers directly. Given this
+project's own token-budget investigation (an earlier conversation, not
+written up as its own section) found that a tool-using turn roughly
+doubles the per-turn token cost, this simplification isn't just cleaner —
+it measurably cuts cost for the single most common kind of recommendation
+request.
 
-Verified live: "a movie about a mathematician" and "something about
-hackers" (the exact cases that prompted this fix) both produced real,
-well-known titles (*A Beautiful Mind*, *Hidden Figures*, *Mr. Robot*,
-*Hackers* (1995)) with a natural availability note, and a plain "thriller"
-request still matched the catalog correctly (`Mindhunter`, `You`, `Fool
-Me Once`) with no change in behavior.
+Verified live: "recommend a comedy" now produces real titles (*The Good
+Place*, *Brooklyn Nine-Nine*, *Parks and Recreation* — not from the fake
+catalog) in one API call with no tool_calls in the message sequence; "can
+you recommend something to watch?" with no identity correctly asks what
+genre; "recommend something based on my profile" as an identified
+customer correctly uses their saved favorite genre through the tool; and
+the same request with nobody identified correctly triggers the
+identification prompt instead of guessing.
 
 ---
 
@@ -778,10 +762,13 @@ The four tools now cover four distinct patterns worth being able to point
 to individually: `add` is a **pure computation** (no data source),
 `get_user_plan` is a **read** from the fake DB, `update_plan` is a
 **write/mutation** to the fake DB, and `recommend_genre` is a
-**recommendation** with no DB involved at all. That spread makes it easy to
+**conditional read with a fallback** — it reads a saved `favorite_genre`
+from the fake DB when there's an identified customer to read one for, and
+falls back to just asking when there isn't. That spread makes it easy to
 explain "here's a tool that only computes, here's one that reads, here's
-one that writes" as three genuinely different shapes of tool, rather than
-two tools that both just read from the same dictionary.
+one that writes, here's one that reads-or-falls-back" as four genuinely
+different shapes of tool, rather than tools that all just read from the
+same dictionary the same way.
 
 ---
 

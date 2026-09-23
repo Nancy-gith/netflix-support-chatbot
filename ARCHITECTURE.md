@@ -128,7 +128,7 @@ conversation.
 | **Calculator** (`add`) | Adds two numbers together | Ask something involving billing math, like "what would two plans together cost?" |
 | **Plan lookup** (`get_user_plan`) | Looks up which plan the currently-selected customer is on | Ask "what plan am I on?" or anything that needs to know your current plan first |
 | **Plan changer** (`update_plan`) | Changes the currently-selected customer's plan in the sample database | Ask to switch/upgrade/downgrade your plan, and confirm you want to |
-| **Recommender** (`recommend_genre`) | Suggests shows/movies — from the small sample list for a broad genre, or from the model's own general knowledge for anything more specific | Ask for a recommendation, with or without mentioning a genre or a more specific theme |
+| **Recommender** (`recommend_genre`) | Looks up a saved favorite genre from the sample database, or asks what genre you like | Only when you ask for a recommendation without saying what you want |
 
 Notice that the plan lookup and plan changer tools never ask you to type
 an account number into the chat — they either use whoever's identified in
@@ -136,40 +136,39 @@ the sidebar automatically, or (if nobody is yet) trigger the "please
 select your name" prompt described above. You never type an ID yourself
 either way.
 
-**The recommender is a little different: it uses your saved taste if it
-has one.** Each sample customer has a made-up "favorite genre" on file
-(a few don't, on purpose — more on that below). If you ask for a
-recommendation without saying what genre you're in the mood for, and
-you're identified, the chatbot checks your saved favorite genre first and
-uses that automatically — no need to repeat yourself every time. If you
-do mention a genre in the moment ("actually, something scary"), that
-always wins over whatever's saved. And if there's nothing saved and you
-haven't said a genre either, it just asks — the same as it always did.
+**Recommendations split into two clearly different paths, and only one
+of them touches a tool at all.**
 
-**One more wrinkle: asking for "my profile" or "my taste" needs identity
-too.** There's a difference between "recommend me something" (fine
-without an identity — it'll just ask you what genre you like) and
-"recommend something based on my profile" or "what should I watch based
-on my taste" (this is explicitly asking the chatbot to use *your*
-history, which it can't do without knowing who you are). For that second
-kind of request, if nobody's identified yet, the chatbot doesn't guess or
-answer generically — it triggers the exact same "please identify
-yourself" prompt used for plan lookups. Once you're identified, the same
-request just works, using your saved favorite genre.
+If you say what you want — a genre ("comedy"), a theme ("a movie about
+hackers"), a regional style ("Bollywood action"), or anything else
+specific — the chatbot doesn't use the recommend_genre tool or the
+sample catalog at all. It answers straight from its own general
+knowledge, with real, well-known titles that actually fit what you
+asked, plus a brief, natural line noting that streaming availability can
+shift over time (since, unlike a sample-catalog pick, these aren't
+titles this project claims are actually on the fake service). This is
+true even for a plain genre name now — the sample catalog was too small
+to be a good source once something specific was said, so the chatbot's
+own broader knowledge is used instead.
 
-**A third wrinkle: asking for something more specific than a genre gets
-a real answer, not a mismatched catalog pick.** The sample catalog only
-covers 8 broad genres (action, comedy, drama, and so on). If you ask for
-something more specific or thematic — "a movie about a mathematician,"
-"something about hackers" — that's not a genre the catalog can match. In
-that case, the chatbot stops using the sample catalog entirely and
-answers from its own general knowledge instead, suggesting real,
-well-known titles that actually fit what you asked. It also adds a
-quick, casual note that streaming availability can shift over time,
-since — unlike a sample-catalog pick — these aren't titles this project
-claims are actually on the service. Asking for a broad genre still uses
-the fast, sample-catalog path exactly as before; this only kicks in when
-the catalog genuinely has nothing that fits.
+The recommend_genre tool only comes into play when you *don't* say
+anything specific:
+- **"Recommend me something"** with nothing else said — the chatbot
+  checks whether you're identified and have a saved favorite genre on
+  file. If so, it recommends from the small sample catalog using that,
+  automatically, without asking. If not, it just asks what genre you're
+  in the mood for.
+- **"Recommend something based on my profile"** or **"what should I
+  watch based on my taste"** — an explicit ask to use *your* saved data.
+  If nobody's identified yet, the chatbot doesn't guess or answer
+  generically — it triggers the exact same "please identify yourself"
+  prompt used for plan lookups, since there's no profile to check without
+  knowing whose it is. Once identified, it works the same as the first
+  case: your saved favorite genre, from the sample catalog.
+
+Each sample customer has a made-up "favorite genre" on file for this
+(a few don't, on purpose, so the "nothing saved — just ask" path has
+real data to show too).
 
 ## Deployment: where the app lives, and where the secret key lives
 

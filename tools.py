@@ -154,60 +154,31 @@ def update_plan(user_id, new_plan):
     }
 
 
-def recommend_genre(preference=None, user_id=None):
-    """Suggests titles. If the customer stated something this turn,
-    `preference` is used as-is — that always wins, even if it differs
-    from what's on file. Otherwise, if a customer is identified and has a
-    saved favorite_genre, that's used automatically. Only if neither is
-    available does this ask for one.
+def recommend_genre(user_id=None):
+    """Used ONLY when the customer didn't name anything specific this
+    turn — a plain "recommend me something" or an explicit "based on my
+    profile/taste" ask. (Any request that names a genre, theme, or
+    specific kind of movie skips this tool entirely — see the TOOLS
+    schema description and the system prompt in chatbot.py. This
+    function has no idea what the fake catalog even contains beyond the
+    one genre it looks up below, on purpose: that decision no longer
+    belongs here.)
 
-    `preference` can be a broad genre ("comedy") or something more
-    specific/thematic ("a movie about a mathematician"). Only the broad
-    genres are covered by the fake catalog — for anything more specific
-    that doesn't match one, this hands back a message telling the model
-    to answer from its own general knowledge instead of forcing a
-    mismatched catalog pick (see the `in_fake_catalog: False` branch)."""
-    used_saved_preference = False
+    If the customer is identified and has a saved favorite_genre,
+    recommends from the fake catalog using that. Otherwise asks what
+    genre they enjoy — there's nothing to personalize with."""
+    if user_id and user_id in USERS_DB:
+        favorite_genre = USERS_DB[user_id].get("favorite_genre")
+        if favorite_genre:
+            return {
+                "matched_genre": favorite_genre,
+                "recommendations": GENRE_CATALOG[favorite_genre],
+                "note": "Based on this customer's saved favorite genre.",
+            }
 
-    if not preference and user_id and user_id in USERS_DB:
-        preference = USERS_DB[user_id].get("favorite_genre")
-        used_saved_preference = preference is not None
-
-    if not preference:
-        return {
-            "error": "No genre preference given, and none saved for this customer.",
-            "message": "Ask the customer what genre they enjoy, then call this tool again with it.",
-        }
-
-    preference_lower = preference.lower().strip()
-
-    for genre, titles in GENRE_CATALOG.items():
-        if genre in preference_lower or preference_lower in genre:
-            result = {"matched_genre": genre, "recommendations": titles}
-            if used_saved_preference:
-                result["note"] = "Based on this customer's saved favorite genre."
-            return result
-
-    # Nothing in the catalog covers this. The old behavior here defaulted
-    # to a generic drama pick, which just produced a wrong-looking answer
-    # for anything more specific than a genre ("a movie about hackers"
-    # would get Crown/Ozark/Queen's Gambit — unrelated). The catalog only
-    # has 8 broad genres, so instead of forcing a mismatched pick, hand it
-    # back to the model to answer from its own general knowledge.
-    catalog_genres = ", ".join(GENRE_CATALOG.keys())
     return {
-        "matched_genre": None,
-        "in_fake_catalog": False,
-        "message": (
-            f"'{preference}' isn't one of this service's sample catalog genres "
-            f"({catalog_genres}) — it's more specific or thematic than that. "
-            "Answer it yourself using your own general knowledge instead: "
-            "suggest a couple of real, well-known titles that actually fit what "
-            "was asked, not anything from the fake catalog. Since these are your "
-            "own suggestions rather than a catalog lookup, add one brief, natural "
-            "line noting that streaming availability can change over time — "
-            "phrased conversationally, not as a formal disclaimer."
-        ),
+        "error": "No saved genre preference for this customer.",
+        "message": "Ask the customer what genre they enjoy.",
     }
 
 
@@ -276,17 +247,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "recommend_genre",
-            "description": "Suggests shows/movies for the customer. Pass whatever they stated as `preference` — a broad genre ('comedy') or something more specific/thematic ('a movie about a mathematician', 'something about hackers') — and call the tool right away, no identity needed either way. The tool checks it against a small sample catalog of broad genres; if the request is too specific for that catalog, the tool tells you so and you should answer instead from your own general knowledge (see the tool's response). If they didn't state anything but explicitly asked for something based on THEIR OWN profile, taste, or watch history (e.g. 'based on my profile', 'what I usually watch'), set `personalized` to true instead of guessing — if nobody's identified yet, this correctly asks them to identify themselves rather than answering generically. For a plain 'recommend me something' with no stated preference and no personalization language, call with neither argument — it uses a saved favorite genre if the customer is identified, or asks what they enjoy if not.",
+            "description": "Use ONLY when the customer asked for a recommendation without naming anything specific — a plain 'recommend me something', or an explicit ask based on THEIR OWN profile/taste/watch history ('based on my profile', 'what I usually watch'). Do NOT use this tool if they named a genre ('comedy'), a theme ('a movie about hackers'), a regional style ('Bollywood action'), or any other specific kind of movie/show — answer those directly yourself instead, from your own knowledge; this tool has nothing useful to add there. Set `personalized` to true only for the profile/taste kind of request — if nobody's identified yet, this correctly asks them to identify themselves instead of guessing. Leave `personalized` false for a plain 'recommend me something' — this looks up the identified customer's saved favorite genre if there is one, or asks what they enjoy if not.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "preference": {
-                        "type": "string",
-                        "description": "Whatever the customer said they want, in this message — a genre or something more specific. Omit entirely if they didn't state one.",
-                    },
                     "personalized": {
                         "type": "boolean",
-                        "description": "True only if the customer explicitly referenced their own profile, taste, or watch history without stating a genre. Omit or set false otherwise.",
+                        "description": "True if the customer explicitly referenced their own profile, taste, or watch history. Omit or set false for a plain, generic recommendation request.",
                     },
                 },
                 "required": [],
@@ -313,11 +280,13 @@ USER_SCOPED_TOOLS = {"get_user_plan", "update_plan"}
 # but work fine without one too, for a plain/generic request — they fall
 # back to asking instead of refusing outright. user_id is passed in as
 # None if nobody's identified, and the tool decides what to do with that.
-# The one exception: if the model set personalized=true (the customer
-# explicitly asked for something tied to THEIR profile/taste/history) and
-# nobody's identified, chatbot.execute_tool_call() treats that one call
-# like a USER_SCOPED_TOOLS call and requires identification anyway — see
-# chatbot.py. That keeps "recommend something generic" working with no
-# identity while "recommend something based on my profile" correctly
-# still needs to know whose profile.
+# recommend_genre is only ever called here with nothing else specific
+# stated (see its TOOLS description above), so the one thing that still
+# matters is the personalized flag: if the model set personalized=true
+# (the customer explicitly asked for something tied to THEIR
+# profile/taste/history) and nobody's identified, chatbot.execute_tool_call()
+# treats that one call like a USER_SCOPED_TOOLS call and requires
+# identification anyway — see chatbot.py. That keeps a plain "recommend
+# something generic" working with no identity while "recommend something
+# based on my profile" correctly still needs to know whose profile.
 OPTIONAL_USER_SCOPED_TOOLS = {"recommend_genre"}
