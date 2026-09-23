@@ -34,6 +34,37 @@ IDENTIFICATION_NEEDED_MESSAGE = (
 # and none of it should ever surface as a raw traceback in the chat UI.
 API_ERROR_MESSAGE = "Something went wrong, please try again in a moment."
 
+# Phrases that mean "use MY saved data," not just "recommend something."
+# Used only as a safety net (see _mentions_own_profile / get_assistant_reply)
+# — the system prompt already instructs the model to call recommend_genre
+# with personalized=true for these, but that's still a judgment call the
+# model makes in the moment, and this is a visible, demoed feature that
+# shouldn't have an occasional random miss. If the model answers this case
+# directly instead of calling the tool, we don't trust that answer — we
+# call the tool ourselves instead of asking the model to try again, since
+# forcing the call is the only way to make this actually reliable rather
+# than just less likely to fail.
+PROFILE_REFERENCE_PHRASES = (
+    "my profile",
+    "my taste",
+    "based on me",
+    "based on my",
+    "my history",
+    "my watch history",
+    "i usually watch",
+    "what i like to watch",
+    "my preferences",
+    "my preference",
+)
+
+
+def _mentions_own_profile(text):
+    """True if `text` explicitly references the customer's own
+    profile/taste/history, the phrasing that's supposed to trigger a
+    personalized recommend_genre call."""
+    text_lower = text.lower()
+    return any(phrase in text_lower for phrase in PROFILE_REFERENCE_PHRASES)
+
 SYSTEM_PROMPT = """You are a polite, on-topic customer support assistant for a Netflix-style streaming service. Stay focused on topics related to the service: plans, billing, accounts, and content recommendations.
 
 STRICT SCOPE RULE — apply this to every single message, no exceptions:
@@ -64,6 +95,8 @@ Recommendations split into two clearly different cases:
 1. The customer names anything specific — a genre ("comedy"), a theme ("a movie about hackers"), a regional style ("Bollywood action"), or any other specific kind of movie/show. Do NOT call recommend_genre for this. Answer directly yourself, from your own general knowledge, with a couple of real, well-known titles that actually fit what was asked, plus one brief, natural line noting that streaming availability can change over time — conversational, not a formal disclaimer. This applies even to a plain genre name; recommend_genre no longer holds a title list worth using for that.
 
 2. The customer asks for a recommendation without naming anything specific — a plain "recommend me something," or an explicit ask based on THEIR OWN profile, taste, or watch history ("recommend something based on my profile," "what should I watch based on my taste"). Only call recommend_genre for this case. For the profile/taste kind of request, set `personalized` to true when calling it; if nobody is identified yet, this correctly triggers the exact same "please identify yourself" response used for plan lookups — that is the right outcome, not a failure, since there's no profile to check without knowing whose it is. For a plain "recommend me something" with no profile/taste language, leave `personalized` false — the tool looks up the identified customer's saved favorite genre automatically if there is one, or tells you to ask what they enjoy if not.
+
+MANDATORY, no exceptions: any time the customer's message references their own profile, taste, or watch history ("my profile," "my taste," "based on me," "what I usually watch," and similar) without also naming a genre or theme in the same message, you MUST call recommend_genre with `personalized` set to true. Do not answer this case yourself, do not ask the customer what genre they like in your own words, and do not skip the tool call for any reason. This is different from a plain "recommend me something," where asking directly is fine — the moment the customer's own profile/taste/history is referenced, the tool call is required, not optional.
 
 Never invent a plausible-sounding genre or answer as if you know a customer's taste when you don't.
 
@@ -222,9 +255,15 @@ def get_assistant_reply(messages, active_user_id=None, max_tool_hops=5):
     been identified yet), so switching or setting the selected customer
     between turns takes effect on the very next message.
     """
+    # The message that started this turn — used only by the
+    # personalized-recommendation safety net below. Captured before the
+    # loop appends anything else, since app.py always appends the new
+    # user message before calling this function.
+    latest_user_message = messages[-1]["content"] if messages[-1]["role"] == "user" else ""
+
     request_messages = _build_request_messages(messages, active_user_id)
 
-    for _ in range(max_tool_hops):
+    for hop in range(max_tool_hops):
         try:
             response = call_groq(request_messages)
             message = response["choices"][0]["message"]
@@ -241,10 +280,36 @@ def get_assistant_reply(messages, active_user_id=None, max_tool_hops=5):
             messages.append({"role": "assistant", "content": API_ERROR_MESSAGE})
             return messages, API_ERROR_MESSAGE, False
 
+        tool_calls = message.get("tool_calls")
+
+        # Safety net: the system prompt tells the model it MUST call
+        # recommend_genre(personalized=true) whenever the customer
+        # references their own profile/taste/history — but that's still
+        # the model's judgment call in the moment, not a guarantee. If it
+        # answered directly instead (no tool call at all) on the very
+        # first hop of a turn that clearly asked for this, don't trust
+        # that answer — substitute the tool call ourselves rather than
+        # asking the model to try again. A retry only makes the miss
+        # less likely; forcing the call is what actually makes it
+        # reliable. Scoped to hop 0 only, since latest_user_message is
+        # only meaningful for the message that started this turn.
+        if hop == 0 and not tool_calls and _mentions_own_profile(latest_user_message):
+            message = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "forced_recommend_genre",
+                        "type": "function",
+                        "function": {"name": "recommend_genre", "arguments": '{"personalized": true}'},
+                    }
+                ],
+            }
+            tool_calls = message["tool_calls"]
+
         messages.append(message)
         request_messages.append(message)
 
-        tool_calls = message.get("tool_calls")
         if not tool_calls:
             # No tool calls means the model is done — this is the final
             # answer for this turn.

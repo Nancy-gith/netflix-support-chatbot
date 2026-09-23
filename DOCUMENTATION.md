@@ -142,6 +142,19 @@ From there, the project was extended in this order:
     removed the substring-matching loop and the `preference` argument
     from `recommend_genre` altogether; see the rewritten
     [Section 3.9](#39-recommend_genre-catalog-vs-general-knowledge).
+24. **Hardened the personalized-recommendation tool call with a code-level
+    safety net.** "Recommend based on my profile" relied entirely on the
+    model correctly deciding to call `recommend_genre(personalized=true)`
+    — a soft judgment call that occasionally missed, answering "what
+    genre do you like?" instead of using the customer's saved data. Since
+    this is a visible, demoed feature, a soft prompt instruction alone
+    wasn't good enough. Added a deterministic backstop in
+    `get_assistant_reply()`: if the triggering message clearly references
+    the customer's own profile/taste/history and the model answers
+    directly instead of calling the tool, the code forces the tool call
+    itself rather than asking the model to try again. See
+    [Section 3.9](#39-recommend_genre-catalog-vs-general-knowledge) for
+    the mechanism.
 
 ---
 
@@ -665,6 +678,98 @@ genre; "recommend something based on my profile" as an identified
 customer correctly uses their saved favorite genre through the tool; and
 the same request with nobody identified correctly triggers the
 identification prompt instead of guessing.
+
+#### A code-level backstop for the "based on my profile" case specifically
+
+Everything above still leaves one decision entirely up to the model: on
+seeing "recommend something based on my profile," does it actually call
+`recommend_genre(personalized=true)`? Usually — testing after the
+two-case split confirmed the model gets this right the large majority of
+the time. But "usually" is a soft-prompt-following guarantee, the exact
+kind of thing this project already learned not to fully trust for the
+off-topic-refusal and identification rules. Left alone, the model would
+occasionally answer directly ("Sure! What genre are you in the mood
+for?") instead of calling the tool — using none of the customer's actual
+saved data on a request that explicitly asked for it. For a demo feature,
+an occasional random miss is worse than a small amount of extra code.
+
+The fix adds a deterministic backstop rather than a retry. A retry (ask
+the model again and hope) only makes the miss *less likely* — if the
+model gets this right 95% of the time, two tries gets you to roughly a
+0.25% miss rate, not zero. Forcing the call is the only way to actually
+guarantee it:
+
+```python
+PROFILE_REFERENCE_PHRASES = (
+    "my profile", "my taste", "based on me", "based on my",
+    "my history", "my watch history", "i usually watch",
+    "what i like to watch", "my preferences", "my preference",
+)
+
+def _mentions_own_profile(text):
+    text_lower = text.lower()
+    return any(phrase in text_lower for phrase in PROFILE_REFERENCE_PHRASES)
+```
+
+In `get_assistant_reply()`, the very first thing captured (before the
+tool-call loop starts) is the message that triggered this turn:
+`latest_user_message = messages[-1]["content"]`. Then, on the first hop
+of the loop only, right after getting the model's response:
+
+```python
+if hop == 0 and not tool_calls and _mentions_own_profile(latest_user_message):
+    message = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": "forced_recommend_genre",
+            "type": "function",
+            "function": {"name": "recommend_genre", "arguments": '{"personalized": true}'},
+        }],
+    }
+    tool_calls = message["tool_calls"]
+```
+
+If the model answered directly (`not tool_calls`) on a message that
+clearly asked for this, its answer is discarded — not shown to the
+customer, not kept in history — and replaced with a synthetic assistant
+message carrying the correct tool call, shaped exactly like a real one
+from the API. From that point on, execution rejoins the normal path:
+`execute_tool_call()` runs it like any other tool call (so the existing
+identification gating for `personalized=true` still applies unchanged —
+an unidentified customer still correctly gets asked to identify
+themselves, not a forced recommendation), and the loop goes back to
+`call_groq()` for a real, naturally-phrased final answer using the real
+tool result. The customer never sees the near-miss.
+
+A few scoping choices worth noting:
+- **`hop == 0` only.** `latest_user_message` is only meaningful for the
+  message that started this turn; forcing on a later hop (after the
+  model has already made other legitimate tool calls) wouldn't make
+  sense and could interfere with a genuinely different flow.
+- **Only triggers on `not tool_calls`, not "tool_calls present but not
+  recommend_genre."** The observed failure mode is the model answering
+  directly with no tool call at all. Being this specific means the
+  backstop can never clobber some other legitimate tool call the model
+  made for an unrelated reason.
+- **Phrase matching, not a semantic check.** A plain substring list is
+  enough here — the point isn't to perfectly classify every possible
+  phrasing (the system prompt instruction already handles the general
+  case correctly most of the time), it's to catch the specific,
+  demonstrated failure pattern reliably. This mirrors the project's
+  existing preference for simple, explainable code over something
+  cleverer.
+
+Verified by simulating the exact reported miss (monkeypatching
+`call_groq`'s first response to answer directly, asking for a genre,
+instead of calling the tool): with an identified customer, the backstop
+caught it, forced the call, and the final reply correctly used their
+saved genre — the wrong "what genre do you like?" text never appeared in
+the conversation. With nobody identified, the same simulated miss
+correctly resolved to the identification prompt, using only the one
+(faked) API call — no wasted second request. Regression-checked that
+genre-specific requests, plain generic requests, and off-topic refusal
+are all unaffected.
 
 ---
 
