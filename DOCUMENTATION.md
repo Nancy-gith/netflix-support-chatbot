@@ -155,6 +155,16 @@ From there, the project was extended in this order:
     itself rather than asking the model to try again. See
     [Section 3.9](#39-recommend_genre-catalog-vs-general-knowledge) for
     the mechanism.
+25. **Trimmed the system prompt and tool descriptions for token
+    efficiency.** A day of feature work had grown the fixed per-request
+    overhead (system prompt + tool schemas) to 2,089 tokens — over a
+    quarter of the 8,000-token/minute free-tier budget spent before any
+    conversation even started, making the app hit rate limits fast
+    during normal testing. Rewrote the same instructions more concisely
+    (2,089 → 1,435 tokens, ~31%) without changing any actual behavior —
+    see [Section 3.10](#310-trimming-the-fixed-token-overhead), including
+    one real regression this pass introduced and then fixed before
+    shipping it.
 
 ---
 
@@ -770,6 +780,102 @@ correctly resolved to the identification prompt, using only the one
 (faked) API call — no wasted second request. Regression-checked that
 genre-specific requests, plain generic requests, and off-topic refusal
 are all unaffected.
+
+### 3.10 Trimming the fixed token overhead
+
+Every request sends the full system prompt and all four tool schemas
+again, every time — that's not conversation history, it's fixed cost
+paid on every single call. A day of feature work (the scope split for
+recommendations, the theme/region fallback, the mandatory profile-request
+block, and everything before that) had grown this to 2,089 tokens,
+measured the same way as this project's earlier token investigation:
+
+```python
+enc = tiktoken.get_encoding("cl100k_base")
+text = json.dumps(request_messages) + json.dumps(tools)
+len(enc.encode(text))
+```
+
+against a fresh `_build_request_messages()` call with an identified
+customer and zero conversation messages. 2,089 tokens is over a quarter
+of the 8,000-token/minute free-tier budget spent before a single word of
+conversation — a meaningful contributor to how fast the app was hitting
+rate limits during normal testing.
+
+**What actually got cut.** Mostly wording, not substance:
+- Sentences rewritten more tersely without dropping any instruction
+  (e.g. "you can answer these for ANYONE, even if you don't know who
+  they are yet" → "answerable for anyone, no identity needed").
+- One genuine redundancy removed: the pricing list said "Subscriptions
+  can be cancelled or paused anytime," and the General Policies section
+  a few lines down fully explained the same cancellation policy in more
+  detail. The short version in the pricing list added nothing and was
+  cut.
+- One low-value line removed entirely: "How the plans differ: covered
+  in the pricing list above" — a self-referential pointer with no new
+  information for the model.
+- The `personalized`-recommendation `MANDATORY` block (originally its
+  own ~115-word paragraph) was folded into case 2 of the Recommendations
+  section as a single "MUST set `personalized` true... never answer
+  that case yourself" clause. This one relies on a fact this project
+  learned the hard way earlier the same day: the code-level backstop in
+  `get_assistant_reply()` (3.9) now *guarantees* this case is handled
+  correctly regardless of what the model does, so the prompt instruction
+  only needs to be good enough to make the backstop rarely necessary —
+  it doesn't have to carry the full weight of correctness by itself
+  anymore. That's a genuine, specific reason this particular instruction
+  could shrink safely where a similarly load-bearing one couldn't.
+- Every tool description in `tools.py` tightened the same way (e.g.
+  `add`'s description: "Adds two numbers together. Use for billing math,
+  like combining a plan price with an add-on fee." → "Adds two numbers.
+  For billing math, e.g. plan price + add-on fee.").
+
+**What did NOT get cut, and why.** The `STRICT SCOPE RULE` (off-topic
+refusal) kept its concrete example list, its "no matter how phrased/
+rephrased/insists/indirect" closer, and the recency-reinforcement
+reminder at the very end of the prompt — this project already learned
+that a shorter, softer version of this exact rule produces inconsistent
+refusals, and it was explicitly out of scope to risk that again. The
+identification/scope-gating logic (which three tools need identity, and
+why) kept every behavioral rule, just with tighter wording.
+
+**A regression, found and fixed before shipping.** The `_active_user_context()`
+note sent when a customer is identified was trimmed along with
+everything else on the first pass — its content was preserved
+(name/ID/plan, "no ID argument needed," "this note overrides earlier
+conversation"), just worded more tersely. Testing the mid-conversation
+customer-switch scenario (ask the same question as two different
+identified customers in a row — the exact case 3.5/3.6 were built
+around) turned up a real regression: with the trimmed wording, the model
+reused the *first* customer's plan for the *second* customer's question,
+reproducibly. Re-tracing a single isolated API call showed correct
+reasoning, but the full multi-turn flow failed consistently — the
+shorter phrasing wasn't forceful enough to reliably win out against what
+was already stated earlier in the visible conversation, the same kind of
+soft-instruction failure mode this project had already hit once with
+off-topic refusal.
+
+The fix: that one note was reverted to its original, already-tested
+wording, accepting back about 53 tokens rather than risk a real
+correctness bug for a marginal token saving. Everything else stayed
+trimmed. Retested the same switch scenario twice cleanly afterward. The
+lesson generalizes: token-trimming a prompt is not risk-free the way
+trimming dead code is — an instruction's *reliability*, not just its
+information content, can depend on how forcefully it's worded, and the
+only way to know is to test the specific behavior the instruction exists
+to protect, not just confirm the prompt still "reads" correctly.
+
+**Final numbers:**
+
+| | Before | After |
+|---|---|---|
+| System prompt alone | 1,319 tokens | 772 tokens |
+| Tool schemas alone | 516 tokens | 427 tokens |
+| **Fixed overhead per request** (prompt + tools + user-context note, 0 conversation) | **2,089 tokens** | **1,435 tokens** |
+
+A 654-token, ~31% reduction, with every off-topic-refusal, identification,
+recommendation-routing, and customer-switch behavior re-verified against
+the live model afterward.
 
 ---
 

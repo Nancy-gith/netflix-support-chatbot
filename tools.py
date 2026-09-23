@@ -203,7 +203,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "add",
-            "description": "Adds two numbers together. Use for billing math, like combining a plan price with an add-on fee.",
+            "description": "Adds two numbers. For billing math, e.g. plan price + add-on fee.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -218,7 +218,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "get_user_plan",
-            "description": "Looks up which subscription plan the currently-selected customer is on. Takes no arguments — the customer is already known from the session.",
+            "description": "Looks up the current customer's subscription plan. No arguments needed.",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -230,7 +230,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "update_plan",
-            "description": "Changes the currently-selected customer's subscription plan. Only call this after the customer has clearly confirmed which plan they want.",
+            "description": "Changes the current customer's plan. Only call after they've clearly confirmed which plan they want.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -247,13 +247,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "recommend_genre",
-            "description": "Use ONLY when the customer asked for a recommendation without naming anything specific — a plain 'recommend me something', or an explicit ask based on THEIR OWN profile/taste/watch history ('based on my profile', 'what I usually watch'). Do NOT use this tool if they named a genre ('comedy'), a theme ('a movie about hackers'), a regional style ('Bollywood action'), or any other specific kind of movie/show — answer those directly yourself instead, from your own knowledge; this tool has nothing useful to add there. Set `personalized` to true only for the profile/taste kind of request — if nobody's identified yet, this correctly asks them to identify themselves instead of guessing. Leave `personalized` false for a plain 'recommend me something' — this looks up the identified customer's saved favorite genre if there is one, or asks what they enjoy if not.",
+            "description": "Use ONLY when nothing specific was named — a plain 'recommend me something', or a profile/taste/history reference ('based on my profile', 'what I usually watch'). Do NOT use for a named genre, theme, regional style, or specific kind of movie/show — answer those yourself instead. Set `personalized` true only for the profile/taste kind (required — asks the customer to identify themselves if nobody's identified yet, instead of guessing); leave it false for a plain ask (uses the identified customer's saved favorite genre if any, or asks what they enjoy).",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "personalized": {
                         "type": "boolean",
-                        "description": "True if the customer explicitly referenced their own profile, taste, or watch history. Omit or set false for a plain, generic recommendation request.",
+                        "description": "True if the customer referenced their own profile, taste, or watch history. Omit/false for a plain, generic request.",
                     },
                 },
                 "required": [],
