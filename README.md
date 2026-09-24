@@ -4,7 +4,7 @@ A Netflix-styled customer support chatbot built to demonstrate **LLM tool-callin
 
 > **Fake data only.** Every customer, plan, and price in this project is made up for demo purposes. This project is not affiliated with, endorsed by, or built using any real Netflix data.
 
-**🔗 Live demo:** [add your Streamlit Cloud URL here]
+**🔗 Live demo:** [netflix-support-chatbot-ac8ie6rj5wqnzhtys92ux4.streamlit.app](https://netflix-support-chatbot-ac8ie6rj5wqnzhtys92ux4.streamlit.app/)
 
 ---
 
